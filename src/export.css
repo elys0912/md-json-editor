@@ -1,0 +1,142 @@
+/* プレビューと HTML の書き出しの本文用。書き出しでは単体で効くよう、色は CSS 変数の既定値を持つ */
+
+.markdown-body {
+  --md-text: var(--text, #1f2328);
+  --md-muted: var(--muted, #59636e);
+  --md-border: var(--border, #d1d9e0);
+  --md-code-bg: var(--code-bg, #f6f8fa);
+  --md-link: var(--link, #0969da);
+
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 32px;
+  color: var(--md-text);
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+  font-size: 16px;
+  line-height: 1.7;
+  overflow-wrap: break-word;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin: 1.5em 0 0.5em;
+  line-height: 1.3;
+}
+
+.markdown-body h1,
+.markdown-body h2 {
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--md-border);
+}
+
+.markdown-body a {
+  color: var(--md-link);
+}
+
+.markdown-body img {
+  max-width: 100%;
+}
+
+.markdown-body blockquote {
+  margin: 0 0 1em;
+  padding: 0 1em;
+  color: var(--md-muted);
+  border-left: 4px solid var(--md-border);
+}
+
+.markdown-body code {
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+  background: var(--md-code-bg);
+  font-family: Consolas, Menlo, 'Courier New', monospace;
+  font-size: 0.9em;
+}
+
+.markdown-body pre {
+  padding: 12px 16px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--md-code-bg);
+  line-height: 1.5;
+}
+
+.markdown-body pre code {
+  padding: 0;
+  background: none;
+}
+
+.markdown-body table {
+  border-collapse: collapse;
+  margin: 0 0 1em;
+  display: block;
+  overflow: auto;
+}
+
+.markdown-body th,
+.markdown-body td {
+  padding: 6px 12px;
+  border: 1px solid var(--md-border);
+}
+
+.markdown-body hr {
+  border: 0;
+  border-top: 1px solid var(--md-border);
+}
+
+.markdown-body .task-list-item {
+  list-style: none;
+}
+
+.markdown-body .task-list-item-checkbox {
+  margin: 0 0.4em 0 -1.4em;
+}
+
+/* highlight.js のトークンの色。画面では style.css の変数（ライト・ダーク）を使い、書き出しでは既定値（ライト）を使う */
+.markdown-body .hljs-keyword,
+.markdown-body .hljs-selector-tag,
+.markdown-body .hljs-built_in {
+  color: var(--hljs-keyword, #cf222e);
+}
+
+.markdown-body .hljs-string,
+.markdown-body .hljs-attr,
+.markdown-body .hljs-attribute {
+  color: var(--hljs-string, #0a3069);
+}
+
+.markdown-body .hljs-number,
+.markdown-body .hljs-literal {
+  color: var(--hljs-number, #0550ae);
+}
+
+.markdown-body .hljs-comment {
+  color: var(--hljs-comment, #6e7781);
+  font-style: italic;
+}
+
+.markdown-body .hljs-title,
+.markdown-body .hljs-name,
+.markdown-body .hljs-section {
+  color: var(--hljs-title, #8250df);
+}
+
+.markdown-body .hljs-addition {
+  color: var(--hljs-addition, #116329);
+  background: var(--hljs-addition-bg, #dafbe1);
+}
+
+.markdown-body .hljs-deletion {
+  color: var(--hljs-deletion, #82071e);
+  background: var(--hljs-deletion-bg, #ffebe9);
+}
+
+@media print {
+  .markdown-body {
+    max-width: none;
+    padding: 0;
+  }
+}

@@ -1,0 +1,648 @@
+/* 画面のスタイル。ライト・ダーク・OS に合わせる（F4-1）は html の data-theme と CSS 変数で切り替える */
+/* 印刷（@media print）ではヘッダ・サイド・パネル・状態行を隠し、本体の本文だけを出す（F4-3） */
+
+/* 色は light-dark() でライトとダークを 1 か所に書く。どちらを使うかは color-scheme で決める（system は OS に合わせる） */
+:root {
+  --header-height: 44px;
+  --status-height: 28px;
+
+  --bg: light-dark(#ffffff, #0d1117);
+  --surface: light-dark(#f6f8fa, #161b22);
+  --text: light-dark(#1f2328, #e6edf3);
+  --muted: light-dark(#59636e, #9198a1);
+  --border: light-dark(#d1d9e0, #3d444d);
+  --accent: light-dark(#2f6feb, #4493f8);
+  --link: light-dark(#0969da, #4493f8);
+  --code-bg: light-dark(#f6f8fa, #161b22);
+  --error: light-dark(#cf222e, #ff7b72);
+  --error-bg: light-dark(#ffebe9, #3d1214);
+  --warning: light-dark(#9a6700, #d29922);
+  --current: light-dark(#fff8c5, #3b2e0a);
+  --geo-fill: light-dark(rgb(47 111 235 / 25%), rgb(68 147 248 / 30%));
+  --geo-stroke: light-dark(#2f6feb, #4493f8);
+  --syntax-heading: light-dark(#0550ae, #79c0ff);
+  --syntax-link: light-dark(#0969da, #4493f8);
+  --syntax-key: light-dark(#0550ae, #79c0ff);
+  --syntax-string: light-dark(#0a3069, #a5d6ff);
+  --syntax-literal: light-dark(#8250df, #d2a8ff);
+  --syntax-comment: light-dark(#6e7781, #9198a1);
+  --syntax-code: light-dark(#953800, #ffa657);
+
+  /* export.css の highlight.js の色 */
+  --hljs-keyword: light-dark(#cf222e, #ff7b72);
+  --hljs-string: light-dark(#0a3069, #a5d6ff);
+  --hljs-number: light-dark(#0550ae, #79c0ff);
+  --hljs-comment: light-dark(#6e7781, #8b949e);
+  --hljs-title: light-dark(#8250df, #d2a8ff);
+  --hljs-addition: light-dark(#116329, #aff5b4);
+  --hljs-addition-bg: light-dark(#dafbe1, #033a16);
+  --hljs-deletion: light-dark(#82071e, #ffdcd7);
+  --hljs-deletion-bg: light-dark(#ffebe9, #67060c);
+
+  color-scheme: light dark;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+  font-size: 14px;
+}
+
+button,
+select,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button,
+select {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+button:disabled,
+select:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+input {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---- 全体の配置 ---- */
+
+.app {
+  display: grid;
+  grid-template:
+    'header header' auto
+    'side main' 1fr
+    'status status' auto / 260px 1fr;
+  height: 100vh;
+}
+
+.app.side-closed {
+  grid-template-columns: 0 1fr;
+}
+
+.app.side-closed .side {
+  display: none;
+}
+
+.header {
+  grid-area: header;
+  min-height: var(--header-height);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.doc-title {
+  max-width: 40vw;
+  overflow: hidden;
+  border-color: transparent;
+  background: none;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-kind-badge {
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.view-select {
+  margin-left: auto;
+}
+
+.menu {
+  position: relative;
+}
+
+.menu summary {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+  list-style: none;
+}
+
+.menu-items {
+  position: absolute;
+  z-index: 10;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 200px;
+  margin-top: 4px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 15%);
+}
+
+.menu-item {
+  border-color: transparent;
+  background: none;
+  text-align: left;
+}
+
+.menu-kind {
+  padding: 4px 10px;
+}
+
+.side {
+  grid-area: side;
+  overflow: auto;
+  padding: 8px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.side-heading {
+  margin: 8px 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.doc-list,
+.toc-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.doc-item {
+  display: flex;
+  align-items: stretch;
+}
+
+.doc-item.is-current .doc-open {
+  border-color: var(--accent);
+}
+
+.doc-open {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 1fr auto;
+  min-width: 0;
+  margin-bottom: 4px;
+  border-color: transparent;
+  background: var(--bg);
+  text-align: left;
+}
+
+.doc-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-kind,
+.doc-updated,
+.doc-size {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.doc-remove {
+  margin: 0 0 4px 4px;
+  padding: 0 8px;
+  border-color: transparent;
+  background: none;
+}
+
+.doc-footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.doc-persist-note {
+  margin: 8px 4px;
+  color: var(--warning);
+  font-size: 12px;
+}
+
+.toc-link {
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+
+.toc-level-2 {
+  padding-left: 12px;
+}
+
+.toc-level-3 {
+  padding-left: 24px;
+}
+
+.main {
+  grid-area: main;
+  display: grid;
+  grid-template:
+    'body properties' 1fr
+    'errors errors' auto / 1fr auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.body {
+  grid-area: body;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.body[data-view='split'] {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  overflow: hidden;
+}
+
+.body .cm-editor {
+  height: 100%;
+}
+
+.body .cm-scroller {
+  font-family: Consolas, Menlo, 'Courier New', monospace;
+}
+
+.body[data-view='split'] .preview {
+  overflow: auto;
+  border-left: 1px solid var(--border);
+}
+
+.properties {
+  grid-area: properties;
+  width: 300px;
+  overflow: auto;
+  padding: 8px;
+  border-left: 1px solid var(--border);
+}
+
+.properties-path {
+  margin: 0 0 8px;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.properties-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.properties-table th,
+.properties-table td {
+  padding: 4px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  word-break: break-all;
+}
+
+.errors {
+  grid-area: errors;
+  max-height: 30vh;
+  overflow: auto;
+  padding: 4px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.issue-heading {
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+.issue-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.issue-link {
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+
+.issue.is-error .issue-link {
+  color: var(--error);
+}
+
+.issue.is-warning .issue-link {
+  color: var(--warning);
+}
+
+.status {
+  grid-area: status;
+  min-height: var(--status-height);
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 4px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.status-notice {
+  margin-left: auto;
+  color: var(--text);
+}
+
+.status-action {
+  margin-left: 8px;
+  padding: 0 8px;
+}
+
+.guide {
+  margin: 24px;
+  color: var(--muted);
+}
+
+.empty {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 24px;
+}
+
+.empty .guide {
+  flex-basis: 100%;
+  margin: 0 0 8px;
+}
+
+/* ---- ツリー・行一覧 ---- */
+
+.tree-toolbar {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.tree-excluded {
+  margin: 6px 10px;
+  color: var(--warning);
+}
+
+.tree-body,
+.rows-view {
+  padding: 6px 10px;
+  font-family: Consolas, Menlo, 'Courier New', monospace;
+}
+
+.tree,
+.tree-children {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tree-children {
+  padding-left: 18px;
+}
+
+.tree-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  white-space: pre;
+}
+
+.tree-row.is-current {
+  background: var(--current);
+}
+
+.tree-toggle,
+.tree-toggle-space {
+  width: 20px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 10px;
+}
+
+.tree-toggle-space {
+  display: inline-block;
+}
+
+.tree-key {
+  color: var(--syntax-key);
+}
+
+.tree-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-string {
+  color: var(--syntax-string);
+}
+
+.tree-number,
+.tree-boolean,
+.tree-null {
+  color: var(--syntax-literal);
+}
+
+.tree-value.tree-container {
+  color: var(--muted);
+}
+
+.tree-copy {
+  margin-left: auto;
+  padding: 0 6px;
+  font-size: 11px;
+  opacity: 0;
+}
+
+.tree-row:hover .tree-copy,
+.tree-copy:focus-visible {
+  opacity: 1;
+}
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rows-item {
+  display: grid;
+  grid-template-columns: 4em 1fr;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.rows-line-no {
+  color: var(--muted);
+  text-align: right;
+}
+
+.rows-summary {
+  overflow: hidden;
+  border: 0;
+  background: none;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rows-detail {
+  grid-column: 2;
+}
+
+.rows-item.is-error {
+  background: var(--error-bg);
+}
+
+.rows-error {
+  color: var(--error);
+}
+
+/* ---- 図形 ---- */
+
+.shape-view {
+  width: 100%;
+  height: 100%;
+}
+
+.geo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+.geo-polygon {
+  fill: var(--geo-fill);
+  stroke: var(--geo-stroke);
+}
+
+.geo-line,
+.geo-point {
+  stroke: var(--geo-stroke);
+}
+
+.geo g {
+  cursor: pointer;
+}
+
+/* ---- 狭い画面 ---- */
+
+@media (width < 768px) {
+  .app {
+    grid-template-columns: 0 1fr;
+  }
+
+  .app:not(.side-closed) .side {
+    position: fixed;
+    z-index: 20;
+    top: var(--header-height);
+    bottom: var(--status-height);
+    left: 0;
+    width: 80vw;
+    box-shadow: 4px 0 12px rgb(0 0 0 / 20%);
+  }
+
+  .main {
+    grid-template:
+      'body' 1fr
+      'properties' auto
+      'errors' auto / 1fr;
+  }
+
+  .properties {
+    width: auto;
+    max-height: 30vh;
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+}
+
+/* ---- 印刷 ---- */
+
+@media print {
+  .header,
+  .side,
+  .properties,
+  .errors,
+  .status,
+  .tree-toolbar {
+    display: none !important;
+  }
+
+  .app,
+  .main,
+  .body,
+  .body[data-view='split'] {
+    display: block;
+    height: auto;
+    overflow: visible;
+  }
+
+  .body[data-view='split'] .cm-editor {
+    display: none;
+  }
+
+  .body .cm-gutters {
+    display: none;
+  }
+}
