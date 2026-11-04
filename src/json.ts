@@ -49,7 +49,21 @@ const ERROR_MESSAGES: Readonly<Record<string, string>> = {
 const TRAILING_COMMA_MESSAGE = '末尾のカンマは使えません';
 const OTHER_ERROR_MESSAGE = '構文の誤りです';
 
-export const NOT_ARRAY_MESSAGE = '最上位が配列ではないため変換できません';
+const NOT_ARRAY_MESSAGE = '最上位が配列ではないため変換できません';
+
+// 整形で、インデントがタブのときの tabSize。タブは 1 段に 1 文字
+const TAB_INDENT_SIZE = 1;
+// JSON Lines を配列にするときのインデント
+const LINES_TO_ARRAY_INDENT: Indent = 2;
+
+function describeBrokenLine(lineNo: number): string {
+  return `誤りのある行があるため変換できません（${lineNo} 行目）`;
+}
+
+/** JSON Lines の誤りの文言。行は元の行の番号、列は行の中の位置。例：`3 行目 5 列：値がありません` */
+export function describeLineError(lineNo: number, error: ParseError): string {
+  return `${lineNo} 行目 ${error.column} 列：${error.message}`;
+}
 
 /** 文字列の offset（0 始まり）を 1 始まりの行・列に直す */
 function toLineColumn(text: string, offset: number): { line: number; column: number } {
@@ -108,17 +122,27 @@ function parseJson(text: string): Parsed {
   }
 }
 
+/** json5 の SyntaxError は lineNumber と columnNumber を持つ。columnNumber は 0 になる場合があるので 1 以上にする */
+function json5ErrorPosition(error: unknown): { line: number; column: number } {
+  if (!(error instanceof Error) || !('lineNumber' in error) || !('columnNumber' in error)) {
+    return { line: 1, column: 1 };
+  }
+
+  const { lineNumber, columnNumber } = error;
+
+  return {
+    line: typeof lineNumber === 'number' ? lineNumber : 1,
+    column: typeof columnNumber === 'number' ? Math.max(1, columnNumber) : 1,
+  };
+}
+
 function parseJson5(text: string): Parsed {
   try {
     return { ok: true, value: JSON5.parse(text) };
   } catch (error) {
-    // json5 の SyntaxError は lineNumber と columnNumber を持つ。columnNumber は 0 になる場合がある
-    const { lineNumber, columnNumber, message } = error as SyntaxError & { lineNumber?: number; columnNumber?: number };
+    const message = error instanceof Error ? error.message : String(error);
 
-    return {
-      ok: false,
-      error: { line: lineNumber ?? 1, column: Math.max(1, columnNumber ?? 1), message: `JSON5 として読めません（${message}）` },
-    };
+    return { ok: false, error: { ...json5ErrorPosition(error), message: `JSON5 として読めません（${message}）` } };
   }
 }
 
@@ -166,7 +190,7 @@ export function format(kind: SingleValueKind, text: string, indent: Indent, eol:
   }
 
   const insertSpaces = indent !== '\t';
-  const edits = formatEdits(text, undefined, { insertSpaces, tabSize: insertSpaces ? indent : 1, eol });
+  const edits = formatEdits(text, undefined, { insertSpaces, tabSize: insertSpaces ? indent : TAB_INDENT_SIZE, eol });
 
   return applyEdits(text, edits);
 }
@@ -198,14 +222,14 @@ export function arrayToLines(text: string, eol: Eol): string {
   return (root.children ?? []).map((element) => minifyJson(text.slice(element.offset, element.offset + element.length)) + eol).join('');
 }
 
-/** JSON Lines を JSON の配列にする（インデント 2 で整形）。誤りのある行が 1 つでもあれば例外 */
+/** JSON Lines を JSON の配列にする（LINES_TO_ARRAY_INDENT で整形）。誤りのある行が 1 つでもあれば例外 */
 export function linesToArray(text: string, eol: Eol): string {
   const lines = splitJsonLines(text);
   const broken = lines.find((line) => !parseJson(line.text).ok);
 
   if (broken !== undefined) {
-    throw new Error(`誤りのある行があるため変換できません（${broken.lineNo} 行目）`);
+    throw new Error(describeBrokenLine(broken.lineNo));
   }
 
-  return format('json', `[${lines.map((line) => line.text).join(',')}]`, 2, eol);
+  return format('json', `[${lines.map((line) => line.text).join(',')}]`, LINES_TO_ARRAY_INDENT, eol);
 }

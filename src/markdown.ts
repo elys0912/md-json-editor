@@ -69,6 +69,8 @@ const FORBID_TAGS = [
 const FORBID_ATTR = ['style', 'action', 'formaction'];
 const TASK_CHECKBOX_CLASS = 'task-list-item-checkbox';
 const EXTERNAL_LINK_PATTERN = /^https?:/i;
+// 外部リンクに target・rel を付ける要素。HTML の a・area と、SVG の a（どれも localName は小文字）
+const LINK_ELEMENT_NAMES: ReadonlySet<string> = new Set(['a', 'area']);
 
 // 書き出す HTML の CSP。外部画像だけ許し、スクリプトとフォームの送信を禁じる
 const EXPORT_CSP = "default-src 'none'; img-src * data:; style-src 'unsafe-inline'; form-action 'none'; base-uri 'none'";
@@ -80,11 +82,18 @@ type RenderEnv = {
   readonly toc: TocEntry[];
 };
 
-/** 見出しの文字からアンカー名を作る（GitHub と同じ）。`\w` は日本語を消すので Unicode の文字・数字のクラスを使う。例：`Hello World!` → `hello-world` */
-export function slugify(text: string, used: Map<string, number>): string {
+function isRenderEnv(env: unknown): env is RenderEnv {
+  return typeof env === 'object' && env !== null && 'nonce' in env && 'toc' in env;
+}
+
+/**
+ * 見出しの文字からアンカー名を作る（GitHub と同じ）。`\w` は日本語を消すので Unicode の文字・結合文字・数字のクラスを使う。
+ * 結合文字（濁点の分離形、アクセント記号など）を消すと文字が変わるため残す。例：`Hello World!` → `hello-world`
+ */
+function slugify(text: string, used: Map<string, number>): string {
   const base = text
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s_-]/gu, '')
+    .replace(/[^\p{L}\p{M}\p{N}\s_-]/gu, '')
     .replace(/\s/g, '-');
   const count = used.get(base) ?? 0;
 
@@ -95,7 +104,12 @@ export function slugify(text: string, used: Map<string, number>): string {
 
 /** ブロックのトークンに元の行（data-line）と、見出し h1〜h3 に目次の連番（data-toc）を付ける core のルール */
 function markSourceLines(state: StateCore): void {
-  const env = state.env as RenderEnv;
+  const env: unknown = state.env;
+
+  if (!isRenderEnv(env)) {
+    return;
+  }
+
   const usedSlugs = new Map<string, number>();
 
   state.tokens.forEach((token, i) => {
@@ -150,7 +164,14 @@ DOMPurify.addHook('uponSanitizeElement', (node, data) => {
   }
 });
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
-  if (node instanceof HTMLAnchorElement && EXTERNAL_LINK_PATTERN.test(node.getAttribute('href') ?? '')) {
+  if (!(node instanceof Element) || !LINK_ELEMENT_NAMES.has(node.localName)) {
+    return;
+  }
+
+  // SVG の a は href の代わりに xlink:href を使うことがある
+  const href = node.getAttribute('href') ?? node.getAttribute('xlink:href') ?? '';
+
+  if (EXTERNAL_LINK_PATTERN.test(href)) {
     node.setAttribute('target', '_blank');
     node.setAttribute('rel', 'noopener noreferrer');
   }

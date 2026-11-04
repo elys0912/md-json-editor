@@ -20,7 +20,7 @@ export type Action =
 
 export type ViewName = 'preview' | 'split' | 'edit' | 'tree' | 'text' | 'rows' | 'shape';
 
-export const VIEW_LABELS: Readonly<Record<ViewName, string>> = {
+const VIEW_LABELS: Readonly<Record<ViewName, string>> = {
   preview: 'プレビュー',
   split: '編集＋プレビュー',
   edit: '編集',
@@ -44,6 +44,11 @@ const ACTION_LABELS: readonly [Action, string][] = [
   ['to-lines', 'JSON Lines に変換'],
   ['to-array', '配列に変換'],
 ];
+
+/** 操作の表示名。空の画面の案内のボタンでも同じ名前を使う */
+export function actionLabel(action: Action): string {
+  return ACTION_LABELS.find(([candidate]) => candidate === action)?.[1] ?? action;
+}
 
 const KINDS: readonly Kind[] = ['markdown', 'json', 'json5', 'jsonl', 'geojson'];
 const THEME_LABELS: readonly [Settings['theme'], string][] = [
@@ -132,61 +137,69 @@ function startRename(nameButton: HTMLButtonElement, current: string, onRename: (
   input.select();
 }
 
-export function createHeader(container: HTMLElement, handlers: HeaderHandlers): Header {
-  const sideToggle = createButton('side-toggle', '≡');
-  const nameButton = createButton('doc-title', '');
-  const kindBadge = document.createElement('span');
-  const kindSelect = createSelect('kind-select', '種別', KINDS.map((kind) => [kind, kind] as const), handlers.changeKind);
-  const viewSelect = document.createElement('select');
+/** 操作のメニュー（details）。項目のボタンは種別ごとの有効・無効を切り替えるため Map で返す */
+function buildMenu(handlers: HeaderHandlers): { menu: HTMLDetailsElement; kindSelect: HTMLSelectElement; actionButtons: Map<Action, HTMLButtonElement> } {
   const menu = document.createElement('details');
+  const summary = document.createElement('summary');
   const menuItems = document.createElement('div');
-  const themeSelect = createSelect('theme-select', 'テーマ', THEME_LABELS, handlers.changeTheme);
+  const kindLabel = document.createElement('label');
+  const kindSelect = createSelect('kind-select', '種別', KINDS.map((kind) => [kind, kind] as const), handlers.changeKind);
   const actionButtons = new Map<Action, HTMLButtonElement>();
-  let currentName = '';
-
-  sideToggle.setAttribute('aria-label', 'サイドの開閉');
-  sideToggle.addEventListener('click', handlers.toggleSide);
-  nameButton.title = 'クリックで名前を変更';
-  nameButton.addEventListener('click', () => {
-    startRename(nameButton, currentName, handlers.rename);
-  });
-  viewSelect.className = 'view-select';
-  viewSelect.setAttribute('aria-label', '表示');
-  viewSelect.addEventListener('change', () => {
-    handlers.changeView(viewSelect.value as ViewName);
-  });
 
   menu.className = 'menu';
+  summary.textContent = '操作';
   menuItems.className = 'menu-items';
 
-  const summary = document.createElement('summary');
-
-  summary.textContent = '操作';
-
   for (const [action, label] of ACTION_LABELS) {
-    const button = createButton('menu-item', label);
-
-    button.dataset.action = action;
-    button.addEventListener('click', () => {
+    const button = createButton('menu-item', label, () => {
       menu.open = false;
       handlers.action(action);
     });
+
+    button.dataset.action = action;
     actionButtons.set(action, button);
     menuItems.append(button);
   }
-
-  const kindLabel = document.createElement('label');
 
   kindLabel.className = 'menu-kind';
   kindLabel.append('種別の変更 ', kindSelect);
   menuItems.append(kindLabel);
   menu.append(summary, menuItems);
+
+  return { menu, kindSelect, actionButtons };
+}
+
+export function createHeader(container: HTMLElement, handlers: HeaderHandlers): Header {
+  const sideToggle = createButton('side-toggle', '≡', handlers.toggleSide);
+  const nameButton = createButton('doc-title', '');
+  const kindBadge = document.createElement('span');
+  const viewSelect = document.createElement('select');
+  const themeSelect = createSelect('theme-select', 'テーマ', THEME_LABELS, handlers.changeTheme);
+  const { menu, kindSelect, actionButtons } = buildMenu(handlers);
+  let currentName = '';
+  let currentViews: readonly ViewName[] = [];
+
+  sideToggle.setAttribute('aria-label', 'サイドの開閉');
+  nameButton.title = 'クリックで名前を変更';
+  nameButton.addEventListener('click', () => {
+    startRename(nameButton, currentName, handlers.rename);
+  });
   kindBadge.className = 'doc-kind-badge';
+  viewSelect.className = 'view-select';
+  viewSelect.setAttribute('aria-label', '表示');
+  viewSelect.addEventListener('change', () => {
+    const chosen = currentViews.find((view) => view === viewSelect.value);
+
+    if (chosen !== undefined) {
+      handlers.changeView(chosen);
+    }
+  });
   container.replaceChildren(sideToggle, nameButton, kindBadge, viewSelect, menu, themeSelect);
 
   return {
     update(state) {
       currentName = state.meta?.name ?? '';
+      currentViews = state.views;
       nameButton.textContent = currentName;
       nameButton.disabled = state.meta === null;
       kindBadge.textContent = state.meta?.kind ?? '';

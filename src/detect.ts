@@ -6,17 +6,18 @@ import JSON5 from 'json5';
 import { GEOJSON_TYPES } from './geojson.ts';
 import type { Kind } from './store.ts';
 
-const KIND_BY_EXTENSION: Readonly<Record<string, Kind>> = {
-  md: 'markdown',
-  markdown: 'markdown',
-  txt: 'markdown',
-  json5: 'json5',
-  jsonl: 'jsonl',
-  ndjson: 'jsonl',
-  geojson: 'geojson',
-};
+// Map にして、`constructor` のようなプロトタイプのキーを拡張子として拾わない
+const KIND_BY_EXTENSION: ReadonlyMap<string, Kind> = new Map([
+  ['md', 'markdown'],
+  ['markdown', 'markdown'],
+  ['txt', 'markdown'],
+  ['json5', 'json5'],
+  ['jsonl', 'jsonl'],
+  ['ndjson', 'jsonl'],
+  ['geojson', 'geojson'],
+]);
 
-export const JSON5_NOTE = 'JSON5 として開きました。JSON のつもりなら種別を変更してください';
+const JSON5_NOTE = 'JSON5 として開きました。JSON のつもりなら種別を変更してください';
 
 // これを超える本文（文字数）は、JSON Lines と JSON5 の試行を先頭の行だけで判断する（全文の試行は重いため）
 const LARGE_TEXT_LENGTH = 5 * 1024 * 1024;
@@ -46,10 +47,11 @@ function isGeoJson(value: unknown): boolean {
   return GEOJSON_TYPES.some((type) => type === value.type);
 }
 
+/** 拡張子（小文字）。`.gitignore` のような先頭のドットだけの名前は、拡張子なしとする（files.ts の replaceExtension と同じ） */
 function extensionOf(name: string | null): string | undefined {
   const dot = name?.lastIndexOf('.') ?? -1;
 
-  return dot < 0 ? undefined : name?.slice(dot + 1).toLowerCase();
+  return dot > 0 ? name?.slice(dot + 1).toLowerCase() : undefined;
 }
 
 function looksLikeJsonLines(text: string): boolean {
@@ -88,7 +90,7 @@ export function detectKind(name: string | null, text: string): { kind: Kind; not
     return { kind: isGeoJson(tryParse(JSON.parse, text)) ? 'geojson' : 'json' };
   }
 
-  const byExtension = extension === undefined ? undefined : KIND_BY_EXTENSION[extension];
+  const byExtension = extension === undefined ? undefined : KIND_BY_EXTENSION.get(extension);
 
   return byExtension === undefined ? detectByContent(text) : { kind: byExtension };
 }

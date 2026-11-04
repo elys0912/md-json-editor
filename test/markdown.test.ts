@@ -2,12 +2,11 @@
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { chooseFiles, downloadedText, fixture, fixtureText, insertAtEnd, pressKey, query, runAction, start, statusShows, texts } from './app.ts';
+import { chooseFiles, downloadedText, fixture, insertAtEnd, pressKey, query, runAction, start, statusShows, texts } from './app.ts';
 
 describe('UC1 Markdown ファイルを選んで読み、目次とページ内リンクで移動する', () => {
   it('プレビューで開き、目次と本文のリンクで見出しへ移る', async () => {
     const root = await start();
-    const sample = fixtureText('sample.md');
 
     await chooseFiles(root, [fixture('sample.md')]);
 
@@ -17,7 +16,8 @@ describe('UC1 Markdown ファイルを選んで読み、目次とページ内リ
     expect(preview.querySelector('input[type="checkbox"][disabled]')).not.toBeNull();
     expect(preview.querySelector('code .hljs-keyword')).not.toBeNull();
     expect(texts(root, '.toc-link')).toEqual(['見出し1', '見出し2', '見出し3', '見出し4']);
-    expect(query(root, '.status-counts').textContent).toBe(`${Array.from(sample).length} 文字・${sample.split(/\n/).length} 行`);
+    // sample.md は 180 文字（改行を含む）・25 行。h4 の見出し5 は目次に入れない
+    expect(query(root, '.status-counts').textContent).toBe('180 文字・25 行');
 
     const scrolled = vi.spyOn(Element.prototype, 'scrollIntoView');
     const heading2 = query(preview, 'h2');

@@ -65,6 +65,8 @@ describe('UC11 新規作成し、一覧で切り替え、名前・種別を変�
     runAction(root, 'new-markdown');
     await titleBecomes(root, '無題 2.md');
     expect(docNames(root)).toEqual(['無題 2.md', '無題.json', '無題.md']);
+    // 空の Markdown 2 件（0 B）と「{}」の JSON（2 B）
+    expect(query(root, '.doc-total').textContent).toBe('3 件・合計 2 B');
 
     openDoc(root, '無題.md');
     await titleBecomes(root, '無題.md');
@@ -95,6 +97,7 @@ describe('UC11 新規作成し、一覧で切り替え、名前・種別を変�
       expect(docNames(root)).toEqual([]);
     });
     expect(confirm).toHaveBeenCalledWith('すべての文書（2 件）を削除します');
+    expect(query(root, '.doc-total').textContent).toBe('0 件・合計 0 B');
     expect(query(root, '.empty .guide').textContent).toBe('ファイルをドロップするか、選ぶか、貼り付けてください');
 
     selectOption(root, '.theme-select', 'dark');

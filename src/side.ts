@@ -14,10 +14,10 @@ export interface DocListHandlers {
 const KILOBYTE = 1024;
 const MEGABYTE = KILOBYTE * 1024;
 
-export const PERSIST_NOTE = 'ブラウザが消す場合があります。大事な文書はダウンロードで控えを';
+const PERSIST_NOTE = 'ブラウザが消す場合があります。大事な文書はダウンロードで控えを';
 
 /** バイト数の表示。例：512 → `512 B`、1536 → `1.5 KB` */
-export function formatSize(bytes: number): string {
+function formatSize(bytes: number): string {
   if (bytes < KILOBYTE) {
     return `${bytes} B`;
   }

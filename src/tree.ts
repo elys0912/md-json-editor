@@ -3,6 +3,7 @@
 // パスの例：`$.items[2].name`、識別子にならないキーは `$["a b"]`
 
 import { createButton, createElement } from './dom.ts';
+import { describeLineError } from './json.ts';
 import type { JsonlLine } from './json.ts';
 
 export interface TreeHandle {
@@ -23,9 +24,16 @@ const CHILD_CHUNK = 500;
 const MAX_EXPANDED_NODES = 5_000;
 // 文字列の値の要約の長さ
 const MAX_SUMMARY_LENGTH = 200;
+// UTF-16 の上位サロゲートの範囲。切り詰めの末尾がこの範囲だと、サロゲートペアを割ってしまう
+const HIGH_SURROGATE_FIRST = 0xd800;
+const HIGH_SURROGATE_LAST = 0xdbff;
 const MAX_SEARCH_MATCHES = 1_000;
 // JSON Lines の行一覧をこの数ずつ描く（N3-2）
 const ROW_CHUNK = 1_000;
+
+const ROOT_PATH = '$';
+// 検索の直後など、どの一致も指していない状態
+const NO_CURRENT = -1;
 
 const IDENTIFIER_PATTERN = /^[A-Za-z_$][\w$]*$/;
 // パスの 1 区切り：`.key`、`[0]`、`["key"]`
@@ -46,6 +54,12 @@ interface TreeNode {
   expanded: boolean;
 }
 
+interface SearchItem {
+  readonly path: string;
+  readonly key: Key | null;
+  readonly value: unknown;
+}
+
 function isContainer(value: unknown): value is Record<string, unknown> | unknown[] {
   return typeof value === 'object' && value !== null;
 }
@@ -58,7 +72,7 @@ function childEntries(value: unknown): [Key, unknown][] {
   return isContainer(value) ? Object.entries(value) : [];
 }
 
-export function childPath(parent: string, key: Key): string {
+function childPath(parent: string, key: Key): string {
   if (typeof key === 'number') {
     return `${parent}[${key}]`;
   }
@@ -73,12 +87,24 @@ function parsePath(path: string): Key[] {
       return Number(index);
     }
 
-    return name ?? (JSON.parse(quoted ?? '""') as string);
+    return name ?? String(JSON.parse(quoted ?? '""'));
   });
 }
 
+/** MAX_SUMMARY_LENGTH 文字で切る。末尾がサロゲートペアの前半なら、ペアを割らないよう 1 文字短く切る */
+function truncate(text: string): string {
+  if (text.length <= MAX_SUMMARY_LENGTH) {
+    return text;
+  }
+
+  const lastUnit = text.charCodeAt(MAX_SUMMARY_LENGTH - 1);
+  const isSplittingPair = lastUnit >= HIGH_SURROGATE_FIRST && lastUnit <= HIGH_SURROGATE_LAST;
+
+  return `${text.slice(0, isSplittingPair ? MAX_SUMMARY_LENGTH - 1 : MAX_SUMMARY_LENGTH)}…`;
+}
+
 /** 値の要約。オブジェクトは `{n}`、配列は `[n]`、文字列は引用符つきで MAX_SUMMARY_LENGTH 文字で切る */
-export function summarize(value: unknown): string {
+function summarize(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.length}]`;
   }
@@ -87,13 +113,7 @@ export function summarize(value: unknown): string {
     return `{${Object.keys(value).length}}`;
   }
 
-  if (typeof value === 'string') {
-    const cut = value.length > MAX_SUMMARY_LENGTH ? `${value.slice(0, MAX_SUMMARY_LENGTH)}…` : value;
-
-    return `"${cut}"`;
-  }
-
-  return String(value);
+  return typeof value === 'string' ? `"${truncate(value)}"` : String(value);
 }
 
 function valueClass(value: unknown): string {
@@ -105,224 +125,238 @@ function valueClass(value: unknown): string {
 }
 
 function copyPath(path: string): void {
-  // クリップボードが使えない環境では何もしない
-  void navigator.clipboard.writeText(path).catch(() => undefined);
+  // クリップボードが使えない環境では何もしない。HTTP など安全でない文脈では navigator.clipboard が undefined になるが、型定義には現れない
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  void navigator.clipboard?.writeText(path).catch(() => undefined);
 }
 
-export function renderTree(container: HTMLElement, value: unknown): TreeHandle {
-  const nodes = new Map<string, TreeNode>();
+// 描いたノード（パス → ノード）。開いた階層だけを持ち、閉じたら子の分を捨てる
+interface TreeState {
+  readonly nodes: Map<string, TreeNode>;
+}
+
+function expandAll(state: TreeState, root: TreeNode): boolean {
+  const queue: TreeNode[] = [root];
+
+  for (let node = queue.shift(); node !== undefined; node = queue.shift()) {
+    if (state.nodes.size > MAX_EXPANDED_NODES) {
+      return false;
+    }
+
+    expand(state, node);
+    queue.push(...node.children);
+  }
+
+  return true;
+}
+
+/** path のノードの行を返す。祖先を開き、「さらに」の先にあれば描き足す */
+function findRow(state: TreeState, root: TreeNode, path: string): HTMLElement | undefined {
+  let node: TreeNode | undefined = root;
+
+  for (const key of parsePath(path)) {
+    if (node === undefined) {
+      return undefined;
+    }
+
+    const parent: TreeNode = node;
+    const index = childEntries(parent.value).findIndex(([entryKey]) => entryKey === key);
+
+    if (index < 0) {
+      return undefined;
+    }
+
+    expand(state, parent);
+
+    while (parent.shown <= index) {
+      showMore(state, parent);
+    }
+
+    node = state.nodes.get(childPath(parent.path, key));
+  }
+
+  return node?.row;
+}
+
+function createNode(state: TreeState, path: string, label: string, nodeValue: unknown): TreeNode {
+  const li = createElement('li', 'tree-node');
+  const row = createElement('div', 'tree-row');
+  const hasChildren = childEntries(nodeValue).length > 0;
+  const toggle = hasChildren ? createButton('tree-toggle', '▶') : null;
+  const copy = createButton('tree-copy', '写す');
+  const childList = createElement('ul', 'tree-children');
+
+  li.setAttribute('role', 'treeitem');
+  childList.setAttribute('role', 'group');
+  childList.hidden = true;
+  copy.title = 'パスを写す';
+  copy.setAttribute('aria-label', `${path} を写す`);
+  copy.addEventListener('click', () => {
+    copyPath(path);
+  });
+  row.append(toggle ?? createElement('span', 'tree-toggle-space'), createElement('span', 'tree-key', label), ': ');
+  row.append(createElement('span', `tree-value ${valueClass(nodeValue)}`, summarize(nodeValue)), copy);
+  li.append(row, childList);
+
+  const node: TreeNode = { path, value: nodeValue, li, row, toggle, childList, children: [], shown: 0, expanded: false };
+
+  if (toggle !== null) {
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.addEventListener('click', () => {
+      if (node.expanded) {
+        collapse(state, node);
+      } else {
+        expand(state, node);
+      }
+    });
+  }
+
+  state.nodes.set(path, node);
+
+  return node;
+}
+
+function forget(state: TreeState, node: TreeNode): void {
+  for (const child of node.children) {
+    forget(state, child);
+    state.nodes.delete(child.path);
+  }
+
+  node.children.length = 0;
+  node.shown = 0;
+}
+
+/** 子を次の CHILD_CHUNK 件だけ描く。残りがあれば「さらに」のボタンを末尾に置く */
+function showMore(state: TreeState, node: TreeNode): void {
+  const entries = childEntries(node.value);
+  const end = Math.min(entries.length, node.shown + CHILD_CHUNK);
+
+  node.childList.querySelector(':scope > .tree-more')?.remove();
+
+  for (const [key, child] of entries.slice(node.shown, end)) {
+    const childNode = createNode(state, childPath(node.path, key), String(key), child);
+
+    node.children.push(childNode);
+    node.childList.append(childNode.li);
+  }
+
+  node.shown = end;
+
+  const rest = entries.length - end;
+
+  if (rest > 0) {
+    const item = createElement('li', 'tree-more');
+    const more = createButton('tree-more-button', `さらに ${Math.min(rest, CHILD_CHUNK)} 件（残り ${rest} 件）`);
+
+    more.addEventListener('click', () => {
+      showMore(state, node);
+    });
+    item.append(more);
+    node.childList.append(item);
+  }
+}
+
+function expand(state: TreeState, node: TreeNode): void {
+  if (node.toggle === null || node.expanded) {
+    return;
+  }
+
+  showMore(state, node);
+  node.expanded = true;
+  node.childList.hidden = false;
+  node.toggle.textContent = '▼';
+  node.toggle.setAttribute('aria-expanded', 'true');
+}
+
+// 閉じたら子の描画を捨てる（描くノードの数を開いた階層だけに保つ）
+function collapse(state: TreeState, node: TreeNode): void {
+  if (node.toggle === null || !node.expanded) {
+    return;
+  }
+
+  forget(state, node);
+  node.childList.replaceChildren();
+  node.expanded = false;
+  node.childList.hidden = true;
+  node.toggle.textContent = '▶';
+  node.toggle.setAttribute('aria-expanded', 'false');
+}
+
+/** キーか値（文字列・数値・真偽値）に needle（小文字）を含むか */
+function matchesNeedle(key: Key | null, value: unknown, needle: string): boolean {
+  const contains = (text: string): boolean => text.toLowerCase().includes(needle);
+  const isPrimitive = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+
+  return (typeof key === 'string' && contains(key)) || (isPrimitive && contains(String(value)));
+}
+
+/** needle（小文字）に一致するノードのパスを、上から下の順に返す。MAX_SEARCH_MATCHES 件に達したら走査をやめる。入れ子が深くても落ちないよう、再帰でなくスタックで走る */
+function searchPaths(root: unknown, needle: string): string[] {
+  const found: string[] = [];
+
+  if (needle === '') {
+    return found;
+  }
+
+  const pending: SearchItem[] = [{ path: ROOT_PATH, key: null, value: root }];
+
+  for (let item = pending.pop(); item !== undefined && found.length < MAX_SEARCH_MATCHES; item = pending.pop()) {
+    if (matchesNeedle(item.key, item.value, needle)) {
+      found.push(item.path);
+    }
+
+    // 逆順に積み、先頭の子から取り出す
+    for (const [childKey, child] of childEntries(item.value).reverse()) {
+      pending.push({ path: childPath(item.path, childKey), key: childKey, value: child });
+    }
+  }
+
+  return found;
+}
+
+/** 次の一致の番号。検索の直後（NO_CURRENT）は、next なら先頭、prev なら末尾 */
+function nextIndex(current: number, step: 1 | -1, length: number): number {
+  if (current === NO_CURRENT) {
+    return step === 1 ? 0 : length - 1;
+  }
+
+  return (current + step + length) % length;
+}
+
+/** 検索と強調の管理。ノードの行は rowOf で得る（祖先を開いて描いたうえで返す） */
+function createFinder(value: unknown, rowOf: (path: string) => HTMLElement | undefined): Pick<TreeHandle, 'search' | 'next' | 'prev' | 'reveal'> {
   let matches: string[] = [];
-  let current = -1;
+  let current = NO_CURRENT;
   let highlighted: HTMLElement | null = null;
 
-  const createNode = (path: string, label: string, nodeValue: unknown): TreeNode => {
-    const li = createElement('li', 'tree-node');
-    const row = createElement('div', 'tree-row');
-    const hasChildren = childEntries(nodeValue).length > 0;
-    const toggle = hasChildren ? createButton('tree-toggle', '▶') : null;
-    const copy = createButton('tree-copy', '写す');
-    const childList = createElement('ul', 'tree-children');
-
-    li.setAttribute('role', 'treeitem');
-    childList.setAttribute('role', 'group');
-    childList.hidden = true;
-    copy.title = 'パスを写す';
-    copy.setAttribute('aria-label', `${path} を写す`);
-    copy.addEventListener('click', () => {
-      copyPath(path);
-    });
-    row.append(toggle ?? createElement('span', 'tree-toggle-space'), createElement('span', 'tree-key', label), ': ');
-    row.append(createElement('span', `tree-value ${valueClass(nodeValue)}`, summarize(nodeValue)), copy);
-    li.append(row, childList);
-
-    const node: TreeNode = { path, value: nodeValue, li, row, toggle, childList, children: [], shown: 0, expanded: false };
-
-    if (toggle !== null) {
-      toggle.setAttribute('aria-expanded', 'false');
-      toggle.addEventListener('click', () => {
-        if (node.expanded) {
-          collapse(node);
-        } else {
-          expand(node);
-        }
-      });
-    }
-
-    nodes.set(path, node);
-
-    return node;
-  };
-
-  const forget = (node: TreeNode): void => {
-    for (const child of node.children) {
-      forget(child);
-      nodes.delete(child.path);
-    }
-
-    node.children.length = 0;
-    node.shown = 0;
-  };
-
-  /** 子を次の CHILD_CHUNK 件だけ描く。残りがあれば「さらに」のボタンを末尾に置く */
-  const showMore = (node: TreeNode): void => {
-    const entries = childEntries(node.value);
-    const end = Math.min(entries.length, node.shown + CHILD_CHUNK);
-
-    node.childList.querySelector(':scope > .tree-more')?.remove();
-
-    for (const [key, child] of entries.slice(node.shown, end)) {
-      const childNode = createNode(childPath(node.path, key), String(key), child);
-
-      node.children.push(childNode);
-      node.childList.append(childNode.li);
-    }
-
-    node.shown = end;
-
-    const rest = entries.length - end;
-
-    if (rest > 0) {
-      const item = createElement('li', 'tree-more');
-      const more = createButton('tree-more-button', `さらに ${Math.min(rest, CHILD_CHUNK)} 件（残り ${rest} 件）`);
-      more.addEventListener('click', () => {
-        showMore(node);
-      });
-      item.append(more);
-      node.childList.append(item);
-    }
-  };
-
-  const expand = (node: TreeNode): void => {
-    if (node.toggle === null || node.expanded) {
-      return;
-    }
-
-    showMore(node);
-    node.expanded = true;
-    node.childList.hidden = false;
-    node.toggle.textContent = '▼';
-    node.toggle.setAttribute('aria-expanded', 'true');
-  };
-
-  // 閉じたら子の描画を捨てる（描くノードの数を開いた階層だけに保つ）
-  const collapse = (node: TreeNode): void => {
-    if (node.toggle === null || !node.expanded) {
-      return;
-    }
-
-    forget(node);
-    node.childList.replaceChildren();
-    node.expanded = false;
-    node.childList.hidden = true;
-    node.toggle.textContent = '▶';
-    node.toggle.setAttribute('aria-expanded', 'false');
-  };
-
-  /** path のノードを描く。祖先を開き、「さらに」の先にあれば描き足す */
-  const ensureNode = (path: string): TreeNode | undefined => {
-    let node = nodes.get('$');
-    let currentPath = '$';
-
-    for (const key of parsePath(path)) {
-      if (node === undefined) {
-        return undefined;
-      }
-
-      const parent = node;
-      const index = childEntries(parent.value).findIndex(([entryKey]) => entryKey === key);
-
-      if (index < 0) {
-        return undefined;
-      }
-
-      expand(parent);
-
-      while (parent.shown <= index) {
-        showMore(parent);
-      }
-
-      currentPath = childPath(currentPath, key);
-      node = nodes.get(currentPath);
-    }
-
-    return node;
-  };
-
-  const highlight = (path: string): void => {
-    const node = ensureNode(path);
-
+  const clearHighlight = (): void => {
     highlighted?.classList.remove('is-current');
-    highlighted = node?.row ?? null;
-    highlighted?.classList.add('is-current');
-    highlighted?.scrollIntoView({ block: 'nearest' });
+    highlighted = null;
   };
+  const highlight = (path: string): void => {
+    const row = rowOf(path);
 
+    clearHighlight();
+    highlighted = row ?? null;
+    row?.classList.add('is-current');
+    row?.scrollIntoView({ block: 'nearest' });
+  };
   const move = (step: 1 | -1): void => {
     if (matches.length === 0) {
       return;
     }
 
-    current = (current + step + matches.length) % matches.length;
-    highlight(matches[current] ?? '$');
+    current = nextIndex(current, step, matches.length);
+    highlight(matches[current] ?? ROOT_PATH);
   };
 
-  const root = createNode('$', '$', value);
-  const list = createElement('ul', 'tree');
-
-  list.setAttribute('role', 'tree');
-  list.append(root.li);
-  container.replaceChildren(list);
-  // 最初は 1 階層目まで開く
-  expand(root);
-
   return {
-    expandAll() {
-      const queue: TreeNode[] = [root];
-
-      for (let node = queue.shift(); node !== undefined; node = queue.shift()) {
-        if (nodes.size > MAX_EXPANDED_NODES) {
-          return false;
-        }
-
-        expand(node);
-        queue.push(...node.children);
-      }
-
-      return true;
-    },
-    collapseAll() {
-      collapse(root);
-      expand(root);
-    },
     search(query) {
-      const needle = query.toLowerCase();
-      const found: string[] = [];
-      const matchesText = (text: string): boolean => text.toLowerCase().includes(needle);
-      const visit = (path: string, key: Key | null, nodeValue: unknown): void => {
-        if (found.length >= MAX_SEARCH_MATCHES) {
-          return;
-        }
+      clearHighlight();
+      matches = searchPaths(value, query.toLowerCase());
+      current = NO_CURRENT;
 
-        const isPrimitive = typeof nodeValue === 'string' || typeof nodeValue === 'number' || typeof nodeValue === 'boolean';
-        const keyMatches = typeof key === 'string' && matchesText(key);
-
-        if (keyMatches || (isPrimitive && matchesText(String(nodeValue)))) {
-          found.push(path);
-        }
-
-        for (const [childKey, child] of childEntries(nodeValue)) {
-          visit(childPath(path, childKey), childKey, child);
-        }
-      };
-
-      if (needle !== '') {
-        visit('$', null, value);
-      }
-
-      matches = found;
-      current = -1;
-
-      return found.length;
+      return matches.length;
     },
     next() {
       move(1);
@@ -330,14 +364,29 @@ export function renderTree(container: HTMLElement, value: unknown): TreeHandle {
     prev() {
       move(-1);
     },
-    reveal(path) {
-      highlight(path);
-    },
+    reveal: highlight,
   };
 }
 
-function errorText(lineNo: number, error: { column: number; message: string }): string {
-  return `${lineNo} 行目 ${error.column} 列：${error.message}`;
+/** ツリーを描く。開いた階層だけ描き、最初は 1 階層目まで開く */
+export function renderTree(container: HTMLElement, value: unknown): TreeHandle {
+  const state: TreeState = { nodes: new Map() };
+  const list = createElement('ul', 'tree');
+  const root = createNode(state, ROOT_PATH, ROOT_PATH, value);
+
+  list.setAttribute('role', 'tree');
+  list.append(root.li);
+  container.replaceChildren(list);
+  expand(state, root);
+
+  return {
+    expandAll: () => expandAll(state, root),
+    collapseAll: () => {
+      collapse(state, root);
+      expand(state, root);
+    },
+    ...createFinder(value, (path) => findRow(state, root, path)),
+  };
 }
 
 /** JSON Lines の行一覧。1 行 ＝ 行番号 ＋ 値の要約。クリックでその行の値をツリーで開く。誤りの行は内容を出す */
@@ -356,7 +405,7 @@ export function renderRows(container: HTMLElement, lines: readonly JsonlLine[]):
 
       if ('error' in line) {
         li.classList.add('is-error');
-        li.append(number, createElement('span', 'rows-error', errorText(line.lineNo, line.error)));
+        li.append(number, createElement('span', 'rows-error', describeLineError(line.lineNo, line.error)));
         list.append(li);
         continue;
       }

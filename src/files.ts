@@ -3,10 +3,21 @@
 import { getText } from './store.ts';
 import type { Meta } from './store.ts';
 
+const BYTES_PER_MB = 1024 * 1024;
 // 開けるファイルの上限（F1-7）
-const MAX_FILE_BYTES = 50 * 1024 * 1024;
+const MAX_FILE_BYTES = 50 * BYTES_PER_MB;
 
-export type ReadFailureReason = 'utf8' | 'size';
+// ダウンロード用の URL を解放するまでの時間。ダウンロードの開始は非同期で、保存先の確認が出る場合もあるため、読み終えるまで 1 分待つ
+const REVOKE_URL_DELAY_MS = 60_000;
+
+// 'read' はファイルの読込そのものの失敗（ファイルが消された・権限がないなど）
+export type ReadFailureReason = 'utf8' | 'size' | 'read';
+
+const REASON_TEXTS: Readonly<Record<ReadFailureReason, string>> = {
+  utf8: 'UTF-8 ではありません',
+  size: `大きすぎます（上限 ${MAX_FILE_BYTES / BYTES_PER_MB} MB）`,
+  read: '読み込めませんでした',
+};
 
 export interface ReadFailure {
   readonly name: string;
@@ -39,9 +50,15 @@ export async function readFile(file: File): Promise<{ ok: true; text: string } |
     return { ok: false, reason: 'size' };
   }
 
+  const buffer = await file.arrayBuffer().catch(() => null);
+
+  if (buffer === null) {
+    return { ok: false, reason: 'read' };
+  }
+
   try {
     // TextDecoder は既定で先頭の BOM を除く。改行は変えない
-    return { ok: true, text: new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer()) };
+    return { ok: true, text: new TextDecoder('utf-8', { fatal: true }).decode(buffer) };
   } catch {
     return { ok: false, reason: 'utf8' };
   }
@@ -62,14 +79,13 @@ export async function findSameDoc(metas: readonly Meta[], name: string, text: st
 
 /** 開けなかったファイルの知らせ。1 件だけ選んだときと、複数を選んだときで形を変える（4 章「読込の失敗」） */
 export function describeFailures(failures: readonly ReadFailure[], isSingleFile: boolean): string {
-  const reasonText = (reason: ReadFailureReason): string => (reason === 'utf8' ? 'UTF-8 ではありません' : '大きすぎます（上限 50 MB）');
   const [first] = failures;
 
   if (isSingleFile && first !== undefined) {
-    return first.reason === 'utf8' ? `「${first.name}」を開けません（UTF-8 ではありません）` : `「${first.name}」は大きすぎます（上限 50 MB）`;
+    return first.reason === 'size' ? `「${first.name}」は${REASON_TEXTS.size}` : `「${first.name}」を開けません（${REASON_TEXTS[first.reason]}）`;
   }
 
-  return `${failures.length} 件を開けませんでした：${failures.map((failure) => `${failure.name}（${reasonText(failure.reason)}）`).join('、')}`;
+  return `${failures.length} 件を開けませんでした：${failures.map((failure) => `${failure.name}（${REASON_TEXTS[failure.reason]}）`).join('、')}`;
 }
 
 export function download(name: string, text: string, type: string): void {
@@ -79,8 +95,7 @@ export function download(name: string, text: string, type: string): void {
   link.href = url;
   link.download = name;
   link.click();
-  // クリックで始まったダウンロードが URL を読み終えてから解放する
   setTimeout(() => {
     URL.revokeObjectURL(url);
-  });
+  }, REVOKE_URL_DELAY_MS);
 }

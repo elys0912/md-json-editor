@@ -1,6 +1,5 @@
 // UC4〜8：JSON をツリーで読む・誤りを直す・整形する、JSON5 を読む、JSON Lines を読んで変換する（基本 10）
 
-import { undo } from '@codemirror/commands';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -67,9 +66,7 @@ describe('UC5 正しい JSON を壊すとツリーは前のまま誤りが出る
     await chooseFiles(root, [new File(['{"a": 1}'], 'ok.json')]);
     pressKey('e');
     insertAtEnd(root, ',');
-    await vi.waitFor(() => {
-      expect(query(root, '.errors').hidden).toBe(false);
-    });
+    // 間引きの 300ms を待たずにツリーへ切り替えても、壊した後の誤りが出る
     pressKey('e');
 
     expect(texts(root, '.tree-key')).toContain('a');
@@ -120,21 +117,10 @@ describe('UC6 JSON を整形・圧縮し、取り消しで戻す', () => {
     expect(view().state.sliceDoc(0)).toBe(`{"big":12345678901234567890,"float":1.0,"escaped":${escaped}}`);
 
     for (let i = 0; i < 4; i += 1) {
-      undo(view());
+      pressKey('z', view().contentDOM);
     }
 
     expect(view().state.sliceDoc(0)).toBe(original);
-  });
-
-  it('Ctrl+Z のキーでも取り消せる', async () => {
-    const root = await start();
-    const original = fixtureText('escapes.json');
-
-    await chooseFiles(root, [fixture('escapes.json')]);
-    runAction(root, 'minify');
-    pressKey('z', editorOf(root).contentDOM);
-
-    expect(editorOf(root).state.sliceDoc(0)).toBe(original);
   });
 });
 
@@ -170,6 +156,7 @@ describe('UC8 JSON Lines のログを読み、誤りのある行を見つけ、�
 
     pressKey('f');
     expect(query(root, '.body').dataset.view).toBe('tree');
+    expect(document.activeElement).toBe(query(root, '.tree-search'));
     expect(query(root, '.tree-excluded').textContent).toBe('誤りのある 1 行を除いた');
 
     runAction(root, 'to-array');
@@ -184,7 +171,8 @@ describe('UC8 JSON Lines のログを読み、誤りのある行を見つけ、�
     await vi.waitFor(() => {
       expect(query(root, '.doc-title').textContent).toBe('log.json');
     });
-    expect(docNames(root)).toEqual(['log.json', 'log.ndjson']);
+    // 元の文書の保存と変換の結果の保存が同じミリ秒になると、一覧の順は決まらない。中身だけを比べる
+    expect(docNames(root).sort()).toEqual(['log.json', 'log.ndjson']);
 
     runAction(root, 'to-lines');
     await vi.waitFor(() => {

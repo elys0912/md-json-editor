@@ -95,43 +95,43 @@
   margin: 0 0.4em 0 -1.4em;
 }
 
-/* highlight.js のトークンの色 */
+/* highlight.js のトークンの色。画面では style.css の変数（ライト・ダーク）を使い、書き出しでは既定値（ライト）を使う */
 .markdown-body .hljs-keyword,
 .markdown-body .hljs-selector-tag,
 .markdown-body .hljs-built_in {
-  color: #cf222e;
+  color: var(--hljs-keyword, #cf222e);
 }
 
 .markdown-body .hljs-string,
 .markdown-body .hljs-attr,
 .markdown-body .hljs-attribute {
-  color: #0a3069;
+  color: var(--hljs-string, #0a3069);
 }
 
 .markdown-body .hljs-number,
 .markdown-body .hljs-literal {
-  color: #0550ae;
+  color: var(--hljs-number, #0550ae);
 }
 
 .markdown-body .hljs-comment {
-  color: #6e7781;
+  color: var(--hljs-comment, #6e7781);
   font-style: italic;
 }
 
 .markdown-body .hljs-title,
 .markdown-body .hljs-name,
 .markdown-body .hljs-section {
-  color: #8250df;
+  color: var(--hljs-title, #8250df);
 }
 
 .markdown-body .hljs-addition {
-  color: #116329;
-  background: #dafbe1;
+  color: var(--hljs-addition, #116329);
+  background: var(--hljs-addition-bg, #dafbe1);
 }
 
 .markdown-body .hljs-deletion {
-  color: #82071e;
-  background: #ffebe9;
+  color: var(--hljs-deletion, #82071e);
+  background: var(--hljs-deletion-bg, #ffebe9);
 }
 
 @media print {

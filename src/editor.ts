@@ -62,15 +62,23 @@ export function createEditor(parent: HTMLElement, onChange: ChangeListener): Edi
 
 /** 本文・言語・改行を差し替える。CodeMirror 6 には履歴だけを消す API が無いので、状態を作り直す（取り消しの履歴も消える） */
 export function setDocument(view: EditorView, text: string, kind: Kind, eol: Eol): void {
-  const onChange = listeners.get(view) ?? (() => undefined);
+  const onChange = listeners.get(view);
+
+  if (onChange === undefined) {
+    throw new Error('createEditor で作ったエディタではありません');
+  }
 
   view.setState(EditorState.create({ doc: text, extensions: buildExtensions(kind, eol, onChange) }));
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(min, value), max);
+}
+
 /** 行・列（1 始まり）へカーソルを移してスクロールする。範囲の外は端に寄せる */
 export function goTo(view: EditorView, line: number, column: number): void {
-  const target = view.state.doc.line(Math.min(Math.max(1, line), view.state.doc.lines));
-  const position = target.from + Math.min(Math.max(0, column - 1), target.length);
+  const target = view.state.doc.line(clamp(line, 1, view.state.doc.lines));
+  const position = target.from + clamp(column - 1, 0, target.length);
 
   view.dispatch({ selection: { anchor: position }, scrollIntoView: true });
   view.focus();

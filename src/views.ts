@@ -3,7 +3,7 @@
 import type { EditorView } from '@codemirror/view';
 
 import { createButton, createElement } from './dom.ts';
-import { renderGeoJson } from './geojson.ts';
+import { MAX_DRAWN_POSITIONS, renderGeoJson } from './geojson.ts';
 import type { RenderedMarkdown } from './markdown.ts';
 import { renderTree } from './tree.ts';
 import type { TreeHandle } from './tree.ts';
@@ -11,7 +11,21 @@ import type { TreeHandle } from './tree.ts';
 // スクロールの連動で、片方を動かした直後に相手からの連動を無視する時間
 const SCROLL_SYNC_IGNORE_MS = 100;
 
-export const NO_VALUE_YET_MESSAGE = 'まだ正しく読めていないため表示できません。誤りパネルの項目から直してください';
+const NO_VALUE_YET_MESSAGE = 'まだ正しく読めていないため表示できません。誤りパネルの項目から直してください';
+const NO_PROPERTIES_MESSAGE = 'properties はありません';
+const TEN_THOUSAND = 10_000;
+
+/** プレビュー。本文が変わったら update で中身だけ差し替える（要素とイベントは作り直さない） */
+export interface PreviewHandle {
+  readonly element: HTMLElement;
+  readonly current: () => RenderedMarkdown;
+  readonly update: (rendered: RenderedMarkdown) => void;
+}
+
+interface LineMark {
+  readonly line: number;
+  readonly top: number;
+}
 
 /** ページ内リンク（`#…`）は、目次の slug が一致する見出し、なければ `user-content-<値>` の要素へ移る（F2-4） */
 function handlePreviewClick(event: MouseEvent, preview: HTMLElement, rendered: RenderedMarkdown): void {
@@ -40,20 +54,29 @@ function handlePreviewClick(event: MouseEvent, preview: HTMLElement, rendered: R
   }
 }
 
-export function createPreview(rendered: RenderedMarkdown): HTMLElement {
-  const preview = createElement('article', 'markdown-body preview');
+export function createPreview(initial: RenderedMarkdown): PreviewHandle {
+  const element = createElement('article', 'markdown-body preview');
+  let rendered = initial;
 
   // DOMPurify を通した html だけを入れる（N2-4）
-  preview.innerHTML = rendered.html;
-  preview.addEventListener('click', (event) => {
-    handlePreviewClick(event, preview, rendered);
+  element.innerHTML = rendered.html;
+  element.addEventListener('click', (event) => {
+    handlePreviewClick(event, element, rendered);
   });
 
-  return preview;
+  return {
+    element,
+    current: () => rendered,
+    update(next) {
+      rendered = next;
+      element.innerHTML = next.html;
+      element.dispatchEvent(new Event('preview-updated'));
+    },
+  };
 }
 
 /** 元の行の印（data-line）の付いた要素と、その行・プレビューの中の縦の位置 */
-function lineMarks(preview: HTMLElement, nonce: string): { line: number; top: number }[] {
+function lineMarks(preview: HTMLElement, nonce: string): LineMark[] {
   const base = preview.getBoundingClientRect().top - preview.scrollTop;
 
   return [...preview.querySelectorAll<HTMLElement>(`[data-line^="${nonce}:"]`)].map((element) => ({
@@ -63,7 +86,7 @@ function lineMarks(preview: HTMLElement, nonce: string): { line: number; top: nu
 }
 
 /** 印の間を補間する。from の値（行か位置）から to の値を求める */
-function interpolate(marks: { line: number; top: number }[], value: number, from: 'line' | 'top', to: 'line' | 'top'): number {
+function interpolate(marks: readonly LineMark[], value: number, from: keyof LineMark, to: keyof LineMark): number {
   const index = marks.findLastIndex((mark) => mark[from] <= value);
   const before = marks[Math.max(0, index)];
   const after = marks[index + 1];
@@ -79,57 +102,58 @@ function interpolate(marks: { line: number; top: number }[], value: number, from
   return before[to] + ((after[to] - before[to]) * (value - before[from])) / (after[from] - before[from]);
 }
 
-/** 編集＋プレビューのスクロールの連動。片方を動かした直後は、相手からの連動を無視する */
-export function attachScrollSync(preview: HTMLElement, nonce: string, editor: EditorView): void {
+/**
+ * 編集＋プレビューのスクロールの連動。片方を動かした直後は、相手からの連動だけを無視する（自分側の続きは追う）。
+ * 印の位置は、本文の差し替えと画面の大きさの変化まで使い回す。signal で外す
+ */
+export function attachScrollSync(preview: PreviewHandle, editor: EditorView, signal: AbortSignal): void {
   const scroller = editor.scrollDOM;
-  let ignoreUntil = 0;
+  let ignored: { source: 'editor' | 'preview'; until: number } | null = null;
+  let marks: LineMark[] | null = null;
 
-  scroller.addEventListener('scroll', () => {
-    if (Date.now() < ignoreUntil) {
-      return;
-    }
+  const isIgnored = (source: 'editor' | 'preview'): boolean => ignored !== null && ignored.source === source && Date.now() < ignored.until;
+  const currentMarks = (): LineMark[] => (marks ??= lineMarks(preview.element, preview.current().nonce));
+  const forgetMarks = (): void => {
+    marks = null;
+  };
 
-    const block = editor.lineBlockAtHeight(scroller.scrollTop);
-    const topLine = editor.state.doc.lineAt(block.from).number;
+  scroller.addEventListener(
+    'scroll',
+    () => {
+      if (isIgnored('editor')) {
+        return;
+      }
 
-    ignoreUntil = Date.now() + SCROLL_SYNC_IGNORE_MS;
-    preview.scrollTop = interpolate(lineMarks(preview, nonce), topLine, 'line', 'top');
-  });
-  preview.addEventListener('scroll', () => {
-    if (Date.now() < ignoreUntil) {
-      return;
-    }
+      const topLine = editor.state.doc.lineAt(editor.lineBlockAtHeight(scroller.scrollTop).from).number;
 
-    const line = Math.round(interpolate(lineMarks(preview, nonce), preview.scrollTop, 'top', 'line'));
-    const doc = editor.state.doc;
+      ignored = { source: 'preview', until: Date.now() + SCROLL_SYNC_IGNORE_MS };
+      preview.element.scrollTop = interpolate(currentMarks(), topLine, 'line', 'top');
+    },
+    { signal },
+  );
+  preview.element.addEventListener(
+    'scroll',
+    () => {
+      if (isIgnored('preview')) {
+        return;
+      }
 
-    ignoreUntil = Date.now() + SCROLL_SYNC_IGNORE_MS;
-    scroller.scrollTop = editor.lineBlockAt(doc.line(Math.min(Math.max(1, line), doc.lines)).from).top;
-  });
+      const line = Math.round(interpolate(currentMarks(), preview.element.scrollTop, 'top', 'line'));
+      const doc = editor.state.doc;
+
+      ignored = { source: 'editor', until: Date.now() + SCROLL_SYNC_IGNORE_MS };
+      scroller.scrollTop = editor.lineBlockAt(doc.line(Math.min(Math.max(1, line), doc.lines)).from).top;
+    },
+    { signal },
+  );
+  preview.element.addEventListener('preview-updated', forgetMarks, { signal });
+  window.addEventListener('resize', forgetMarks, { signal });
 }
 
-/**
- * ツリーの表示（全開・全閉・検索欄・前・次とツリー本体）。value が undefined（まだ読めていない）なら案内だけ出す。
- * brokenCount は JSON Lines の全行のツリーで除いた誤りの行の数
- */
-export function renderTreeView(
-  value: unknown,
-  brokenCount: number,
-  onPartlyExpanded: () => void,
-): { element: HTMLElement; handle: TreeHandle | null } {
-  const wrapper = createElement('div', 'tree-view');
-
-  if (value === undefined) {
-    wrapper.append(createElement('p', 'guide', NO_VALUE_YET_MESSAGE));
-
-    return { element: wrapper, handle: null };
-  }
-
+function buildTreeToolbar(handle: TreeHandle, onPartlyExpanded: () => void): HTMLElement {
   const toolbar = createElement('div', 'tree-toolbar');
   const search = createElement('input', 'tree-search');
   const count = createElement('span', 'tree-count');
-  const container = createElement('div', 'tree-container');
-  const handle = renderTree(container, value);
 
   search.type = 'search';
   search.placeholder = '検索';
@@ -160,13 +184,37 @@ export function renderTreeView(
     createButton('tree-next', '次', handle.next),
     count,
   );
-  wrapper.append(toolbar);
+
+  return toolbar;
+}
+
+/**
+ * ツリーの表示（全開・全閉・検索欄・前・次とツリー本体）。value が undefined（まだ読めていない）なら案内だけ出す。
+ * brokenCount は JSON Lines の全行のツリーで除いた誤りの行の数
+ */
+export function renderTreeView(
+  value: unknown,
+  brokenCount: number,
+  onPartlyExpanded: () => void,
+): { element: HTMLElement; handle: TreeHandle | null } {
+  const wrapper = createElement('div', 'tree-view');
+
+  if (value === undefined) {
+    wrapper.append(createElement('p', 'guide', NO_VALUE_YET_MESSAGE));
+
+    return { element: wrapper, handle: null };
+  }
+
+  const treeBody = createElement('div', 'tree-body');
+  const handle = renderTree(treeBody, value);
+
+  wrapper.append(buildTreeToolbar(handle, onPartlyExpanded));
 
   if (brokenCount > 0) {
     wrapper.append(createElement('p', 'tree-excluded', `誤りのある ${brokenCount} 行を除いた`));
   }
 
-  wrapper.append(container);
+  wrapper.append(treeBody);
 
   return { element: wrapper, handle };
 }
@@ -186,13 +234,13 @@ export function showProperties(panel: HTMLElement, properties: unknown, path: st
 
   panel.replaceChildren(
     createElement('h2', 'properties-path', path),
-    table.rows.length > 0 ? table : createElement('p', 'guide', 'properties はありません'),
+    table.rows.length > 0 ? table : createElement('p', 'guide', NO_PROPERTIES_MESSAGE),
   );
 }
 
 export function renderShapeView(
   lastGood: { readonly value: unknown } | null,
-  errorFeatures: Set<string>,
+  errorFeatures: ReadonlySet<string>,
   onSelect: (properties: unknown, path: string) => void,
 ): HTMLElement {
   const container = createElement('div', 'shape-view');
@@ -203,10 +251,15 @@ export function renderShapeView(
     return container;
   }
 
-  const result = renderGeoJson(container, lastGood.value, errorFeatures, onSelect);
+  const drawResult = renderGeoJson(container, lastGood.value, errorFeatures, onSelect);
 
-  if (!result.drawn) {
-    container.append(createElement('p', 'guide', `大きすぎるため図形を描きません（位置 ${result.count} 個、上限 50 万）。ツリーで見てください`));
+  if (!drawResult.drawn) {
+    // 4 章の文言どおり「50 万」の形で出す
+    const limitInMan = MAX_DRAWN_POSITIONS / TEN_THOUSAND;
+
+    container.append(
+      createElement('p', 'guide', `大きすぎるため図形を描きません（位置 ${drawResult.count} 個、上限 ${limitInMan} 万）。ツリーで見てください`),
+    );
   }
 
   return container;

@@ -1,84 +1,53 @@
 /* 画面のスタイル。ライト・ダーク・OS に合わせる（F4-1）は html の data-theme と CSS 変数で切り替える */
 /* 印刷（@media print）ではヘッダ・サイド・パネル・状態行を隠し、本体の本文だけを出す（F4-3） */
 
+/* 色は light-dark() でライトとダークを 1 か所に書く。どちらを使うかは color-scheme で決める（system は OS に合わせる） */
 :root {
-  --bg: #ffffff;
-  --surface: #f6f8fa;
-  --text: #1f2328;
-  --muted: #59636e;
-  --border: #d1d9e0;
-  --accent: #2f6feb;
-  --link: #0969da;
-  --code-bg: #f6f8fa;
-  --error: #cf222e;
-  --error-bg: #ffebe9;
-  --warning: #9a6700;
-  --current: #fff8c5;
-  --geo-fill: rgb(47 111 235 / 25%);
-  --geo-stroke: #2f6feb;
-  --syntax-heading: #0550ae;
-  --syntax-link: #0969da;
-  --syntax-key: #0550ae;
-  --syntax-string: #0a3069;
-  --syntax-literal: #8250df;
-  --syntax-comment: #6e7781;
-  --syntax-code: #953800;
+  --header-height: 44px;
+  --status-height: 28px;
 
+  --bg: light-dark(#ffffff, #0d1117);
+  --surface: light-dark(#f6f8fa, #161b22);
+  --text: light-dark(#1f2328, #e6edf3);
+  --muted: light-dark(#59636e, #9198a1);
+  --border: light-dark(#d1d9e0, #3d444d);
+  --accent: light-dark(#2f6feb, #4493f8);
+  --link: light-dark(#0969da, #4493f8);
+  --code-bg: light-dark(#f6f8fa, #161b22);
+  --error: light-dark(#cf222e, #ff7b72);
+  --error-bg: light-dark(#ffebe9, #3d1214);
+  --warning: light-dark(#9a6700, #d29922);
+  --current: light-dark(#fff8c5, #3b2e0a);
+  --geo-fill: light-dark(rgb(47 111 235 / 25%), rgb(68 147 248 / 30%));
+  --geo-stroke: light-dark(#2f6feb, #4493f8);
+  --syntax-heading: light-dark(#0550ae, #79c0ff);
+  --syntax-link: light-dark(#0969da, #4493f8);
+  --syntax-key: light-dark(#0550ae, #79c0ff);
+  --syntax-string: light-dark(#0a3069, #a5d6ff);
+  --syntax-literal: light-dark(#8250df, #d2a8ff);
+  --syntax-comment: light-dark(#6e7781, #9198a1);
+  --syntax-code: light-dark(#953800, #ffa657);
+
+  /* export.css の highlight.js の色 */
+  --hljs-keyword: light-dark(#cf222e, #ff7b72);
+  --hljs-string: light-dark(#0a3069, #a5d6ff);
+  --hljs-number: light-dark(#0550ae, #79c0ff);
+  --hljs-comment: light-dark(#6e7781, #8b949e);
+  --hljs-title: light-dark(#8250df, #d2a8ff);
+  --hljs-addition: light-dark(#116329, #aff5b4);
+  --hljs-addition-bg: light-dark(#dafbe1, #033a16);
+  --hljs-deletion: light-dark(#82071e, #ffdcd7);
+  --hljs-deletion-bg: light-dark(#ffebe9, #67060c);
+
+  color-scheme: light dark;
+}
+
+:root[data-theme='light'] {
   color-scheme: light;
 }
 
 :root[data-theme='dark'] {
-  --bg: #0d1117;
-  --surface: #161b22;
-  --text: #e6edf3;
-  --muted: #9198a1;
-  --border: #3d444d;
-  --accent: #4493f8;
-  --link: #4493f8;
-  --code-bg: #161b22;
-  --error: #ff7b72;
-  --error-bg: #3d1214;
-  --warning: #d29922;
-  --current: #3b2e0a;
-  --geo-fill: rgb(68 147 248 / 30%);
-  --geo-stroke: #4493f8;
-  --syntax-heading: #79c0ff;
-  --syntax-link: #4493f8;
-  --syntax-key: #79c0ff;
-  --syntax-string: #a5d6ff;
-  --syntax-literal: #d2a8ff;
-  --syntax-comment: #9198a1;
-  --syntax-code: #ffa657;
-
   color-scheme: dark;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root[data-theme='system'] {
-    --bg: #0d1117;
-    --surface: #161b22;
-    --text: #e6edf3;
-    --muted: #9198a1;
-    --border: #3d444d;
-    --accent: #4493f8;
-    --link: #4493f8;
-    --code-bg: #161b22;
-    --error: #ff7b72;
-    --error-bg: #3d1214;
-    --warning: #d29922;
-    --current: #3b2e0a;
-    --geo-fill: rgb(68 147 248 / 30%);
-    --geo-stroke: #4493f8;
-    --syntax-heading: #79c0ff;
-    --syntax-link: #4493f8;
-    --syntax-key: #79c0ff;
-    --syntax-string: #a5d6ff;
-    --syntax-literal: #d2a8ff;
-    --syntax-comment: #9198a1;
-    --syntax-code: #ffa657;
-
-    color-scheme: dark;
-  }
 }
 
 * {
@@ -153,6 +122,7 @@ input {
 
 .header {
   grid-area: header;
+  min-height: var(--header-height);
   display: flex;
   gap: 8px;
   align-items: center;
@@ -414,6 +384,7 @@ input {
 
 .status {
   grid-area: status;
+  min-height: var(--status-height);
   display: flex;
   gap: 16px;
   align-items: center;
@@ -471,7 +442,7 @@ input {
   color: var(--warning);
 }
 
-.tree-container,
+.tree-body,
 .rows-view {
   padding: 6px 10px;
   font-family: Consolas, Menlo, 'Courier New', monospace;
@@ -531,8 +502,7 @@ input {
   color: var(--syntax-literal);
 }
 
-.tree-container .tree-value.tree-container {
-  padding: 0;
+.tree-value.tree-container {
   color: var(--muted);
 }
 
@@ -625,8 +595,8 @@ input {
   .app:not(.side-closed) .side {
     position: fixed;
     z-index: 20;
-    top: 44px;
-    bottom: 28px;
+    top: var(--header-height);
+    bottom: var(--status-height);
     left: 0;
     width: 80vw;
     box-shadow: 4px 0 12px rgb(0 0 0 / 20%);

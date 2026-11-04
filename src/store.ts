@@ -34,6 +34,8 @@ export interface StoreEvents {
   onDeleted(id: string | null): void;
   // 版の更新で DB を閉じる直前。呼び出し側が flush し、いま開いている文書を返す
   beforeClose(): Promise<StoredDoc | null>;
+  // 版の更新で DB を閉じてメモリへ移った後
+  afterClose(): void;
 }
 
 const DB_NAME = 'md-json-editor';
@@ -59,6 +61,7 @@ let db: IDBDatabase | null = null;
 const memory = new Map<string, StoredDoc>();
 let channel: BroadcastChannel | null = null;
 
+// getAll と get の戻りは IDBRequest<any> なので、呼び出し側で `as` で型を付ける（外すと no-unsafe-argument になる）
 function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     request.onsuccess = () => {
@@ -75,9 +78,7 @@ function transactionDone(transaction: IDBTransaction): Promise<void> {
     transaction.oncomplete = () => {
       resolve();
     };
-    transaction.onerror = () => {
-      reject(transaction.error ?? new Error('IndexedDB のトランザクションに失敗した'));
-    };
+    // 要求の失敗は onerror の後に onabort が続くので、onerror では扱わない（原因の DOMException は onabort の transaction.error に入る）
     transaction.onabort = () => {
       reject(transaction.error ?? new Error('IndexedDB のトランザクションが中断された'));
     };
@@ -111,12 +112,15 @@ async function requestPersistence(): Promise<boolean> {
   }
 }
 
-function isChannelMessage(data: unknown): data is ChannelMessage {
-  if (typeof data !== 'object' || data === null || !('type' in data) || !('id' in data)) {
+function isChannelMessage(message: unknown): message is ChannelMessage {
+  if (typeof message !== 'object' || message === null || !('type' in message) || !('id' in message)) {
     return false;
   }
 
-  return (data.type === 'saved' && typeof data.id === 'string') || (data.type === 'deleted' && (typeof data.id === 'string' || data.id === null));
+  return (
+    (message.type === 'saved' && typeof message.id === 'string') ||
+    (message.type === 'deleted' && (typeof message.id === 'string' || message.id === null))
+  );
 }
 
 function openChannel(events: StoreEvents): BroadcastChannel | null {
@@ -154,19 +158,28 @@ function closeStore(): void {
   memory.clear();
 }
 
-/** 版の更新で DB を閉じる。閉じる前に、いま開いている文書だけをメモリに写す（一覧はその 1 件になる） */
+/** 版の更新で DB を閉じる。閉じる前に、いま開いている文書だけをメモリに写す（一覧はその 1 件になる）。beforeClose が失敗しても閉じる */
 async function moveToMemory(events: StoreEvents): Promise<void> {
-  const current = await events.beforeClose();
+  let current: StoredDoc | null = null;
 
-  closeStore();
+  try {
+    current = await events.beforeClose();
+  } finally {
+    closeStore();
 
-  if (current !== null) {
-    memory.set(current.meta.id, current);
+    if (current !== null) {
+      memory.set(current.meta.id, current);
+    }
+
+    events.afterClose();
   }
 }
 
-/** DB を開く。開けなければメモリで動き、inMemory: true を返す。起動し直すときも呼ぶ（前の状態は捨てる） */
-export async function openStore(events: StoreEvents): Promise<{ persistent: boolean; inMemory: boolean }> {
+/**
+ * DB を開く。開けなければメモリで動き、inMemory: true を返す。起動し直すときも呼ぶ（前の状態は捨てる）。
+ * 永続化の結果は persistent で後から渡す。Firefox は許可の確認に答えるまで persist() が返らないので、起動を待たせない
+ */
+export async function openStore(events: StoreEvents): Promise<{ inMemory: boolean; persistent: Promise<boolean> }> {
   closeStore();
 
   try {
@@ -182,9 +195,7 @@ export async function openStore(events: StoreEvents): Promise<{ persistent: bool
     channel = openChannel(events);
   }
 
-  const persistent = await requestPersistence();
-
-  return { persistent, inMemory: db === null };
+  return { inMemory: db === null, persistent: requestPersistence() };
 }
 
 function byUpdatedAtDesc(a: Meta, b: Meta): number {
