@@ -59,6 +59,117 @@ describe('UC4 危険な文字列を含む JSON をツリーで読み、全開・
   });
 });
 
+describe('UC4 件数の多い配列で、検索した該当へ移る', () => {
+  // 子は 500 件ずつ描く。1,700 件なら束は 0〜499、500〜999、1000〜1499、1500〜1699
+  const ITEM_COUNT = 1_700;
+
+  /** items の子のうち、描かれているものの番号 */
+  const shownIndexes = (root: HTMLElement): number[] =>
+    texts(root, '.tree-key')
+      .filter((key) => /^\d+$/.test(key))
+      .map(Number);
+
+  /** 値が `n<番号>` の要素を itemCount 件持つ配列を開く */
+  async function openItems(itemCount: number): Promise<HTMLElement> {
+    const root = await start();
+    const json = JSON.stringify({ items: Array.from({ length: itemCount }, (_, index) => `n${index}`) });
+
+    await chooseFiles(root, [new File([json], 'many.json')]);
+
+    return root;
+  }
+
+  /** 番号 index の要素を検索して、その該当へ移る */
+  function moveToItem(root: HTMLElement, index: number): void {
+    const search = query(root, '.tree-search', HTMLInputElement);
+
+    search.value = `n${index}`;
+    search.dispatchEvent(new Event('input'));
+    click(root, '.tree-next');
+  }
+
+  it('離れた位置の該当へ移ると、その束だけを描き、手前は「前の」のボタンで描き足せる', async () => {
+    const root = await openItems(ITEM_COUNT);
+
+    moveToItem(root, 1_699);
+
+    expect(query(root, '.tree-row.is-current .tree-key').textContent).toBe('1699');
+    expect(shownIndexes(root)).toHaveLength(200);
+    expect(shownIndexes(root)[0]).toBe(1_500);
+    expect(texts(root, '.tree-more-button')).toEqual(['前の 500 件（手前に 1500 件）']);
+
+    click(root, '.tree-more-button');
+
+    expect(shownIndexes(root)).toHaveLength(700);
+    expect(shownIndexes(root)[0]).toBe(1_000);
+    expect(texts(root, '.tree-more-button')).toEqual(['前の 500 件（手前に 1000 件）']);
+  });
+
+  it('途中の束へ移ると、「前の」が先頭に、「さらに」が末尾に並ぶ', async () => {
+    const root = await openItems(ITEM_COUNT);
+
+    moveToItem(root, 1_200);
+
+    expect(shownIndexes(root)[0]).toBe(1_000);
+    expect(shownIndexes(root)).toHaveLength(500);
+    expect(texts(root, '.tree-more-button')).toEqual(['前の 500 件（手前に 1000 件）', 'さらに 200 件（残り 200 件）']);
+  });
+
+  it('次の束の該当へ移ると、描いた分を残して続きを描き足す', async () => {
+    const root = await openItems(ITEM_COUNT);
+
+    moveToItem(root, 10);
+    moveToItem(root, 700);
+
+    expect(query(root, '.tree-row.is-current .tree-key').textContent).toBe('700');
+    expect(shownIndexes(root)).toHaveLength(1_000);
+    expect(shownIndexes(root)[0]).toBe(0);
+    expect(texts(root, '.tree-more-button')).toEqual(['さらに 500 件（残り 700 件）']);
+  });
+
+  it('前の束の該当へ移ると、描いた分を残して手前を描き足す', async () => {
+    const root = await openItems(ITEM_COUNT);
+
+    moveToItem(root, 1_699);
+    moveToItem(root, 1_499);
+
+    expect(query(root, '.tree-row.is-current .tree-key').textContent).toBe('1499');
+    expect(shownIndexes(root)).toHaveLength(700);
+    expect(shownIndexes(root)[0]).toBe(1_000);
+  });
+
+  it('入れ子の配列の離れた位置へ移ると、途中の階層もその束だけを描いて該当に届く', async () => {
+    const root = await start();
+    const tags = Array.from({ length: ITEM_COUNT }, (_, index) => `m${index}`);
+    const items = Array.from({ length: ITEM_COUNT }, (_, index) => (index === 1_200 ? { tags } : index));
+
+    await chooseFiles(root, [new File([JSON.stringify({ items })], 'nested.json')]);
+
+    const search = query(root, '.tree-search', HTMLInputElement);
+
+    search.value = 'm1300';
+    search.dispatchEvent(new Event('input'));
+    click(root, '.tree-next');
+
+    expect(query(root, '.tree-row.is-current .tree-copy').getAttribute('aria-label')).toBe('$.items[1200].tags[1300] を写す');
+  });
+
+  it('隣の束へ移り続けても描き足すのは 5,000 件までで、超えたら移動先の束だけにする', async () => {
+    const root = await openItems(6_000);
+
+    for (let index = 0; index <= 4_500; index += 500) {
+      moveToItem(root, index);
+    }
+
+    expect(shownIndexes(root)).toHaveLength(5_000);
+
+    moveToItem(root, 5_000);
+
+    expect(shownIndexes(root)).toHaveLength(500);
+    expect(shownIndexes(root)[0]).toBe(5_000);
+  });
+});
+
 describe('UC5 正しい JSON を壊すとツリーは前のまま誤りが出る。壊れた JSON の誤りの位置へ移って直す', () => {
   it('壊したあともツリーは前の内容で、誤りパネルに誤りが出る', async () => {
     const root = await start();

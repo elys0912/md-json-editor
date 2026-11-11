@@ -22,6 +22,8 @@ export interface TreeHandle {
 const CHILD_CHUNK = 500;
 // 全開で描くノードの上限
 const MAX_EXPANDED_NODES = 5_000;
+// 検索や誤りの位置への移動で、1 つの親の下に描き足していく子の上限。隣の束へ順に移り続けても、描く数を抑える
+const MAX_REVEALED_CHILDREN = 5_000;
 // 文字列の値の要約の長さ
 const MAX_SUMMARY_LENGTH = 200;
 // UTF-16 の上位サロゲートの範囲。切り詰めの末尾がこの範囲だと、サロゲートペアを割ってしまう
@@ -49,8 +51,9 @@ interface TreeNode {
   readonly toggle: HTMLButtonElement | null;
   readonly childList: HTMLUListElement;
   readonly children: TreeNode[];
-  // 描いた子の数
-  shown: number;
+  // 描いた子の範囲（begin 以上 end 未満）。離れた位置へ移ったとき（showChunkOf）だけ begin が 0 でなくなる
+  begin: number;
+  end: number;
   expanded: boolean;
 }
 
@@ -150,7 +153,7 @@ function expandAll(state: TreeState, root: TreeNode): boolean {
   return true;
 }
 
-/** path のノードの行を返す。祖先を開き、「さらに」の先にあれば描き足す */
+/** path のノードの行を返す。祖先を開き、描いた範囲の外にあればその束を描く */
 function findRow(state: TreeState, root: TreeNode, path: string): HTMLElement | undefined {
   let node: TreeNode | undefined = root;
 
@@ -166,11 +169,8 @@ function findRow(state: TreeState, root: TreeNode, path: string): HTMLElement | 
       return undefined;
     }
 
-    expand(state, parent);
-
-    while (parent.shown <= index) {
-      showMore(state, parent);
-    }
+    showChild(state, parent, index);
+    markExpanded(parent);
 
     node = state.nodes.get(childPath(parent.path, key));
   }
@@ -198,7 +198,7 @@ function createNode(state: TreeState, path: string, label: string, nodeValue: un
   row.append(createElement('span', `tree-value ${valueClass(nodeValue)}`, summarize(nodeValue)), copy);
   li.append(row, childList);
 
-  const node: TreeNode = { path, value: nodeValue, li, row, toggle, childList, children: [], shown: 0, expanded: false };
+  const node: TreeNode = { path, value: nodeValue, li, row, toggle, childList, children: [], begin: 0, end: 0, expanded: false };
 
   if (toggle !== null) {
     toggle.setAttribute('aria-expanded', 'false');
@@ -223,37 +223,120 @@ function forget(state: TreeState, node: TreeNode): void {
   }
 
   node.children.length = 0;
-  node.shown = 0;
+  node.begin = 0;
+  node.end = 0;
 }
 
-/** 子を次の CHILD_CHUNK 件だけ描く。残りがあれば「さらに」のボタンを末尾に置く */
-function showMore(state: TreeState, node: TreeNode): void {
-  const entries = childEntries(node.value);
-  const end = Math.min(entries.length, node.shown + CHILD_CHUNK);
+/** 描いた子を、控えと画面の両方から捨てる */
+function discardChildren(state: TreeState, node: TreeNode): void {
+  forget(state, node);
+  node.childList.replaceChildren();
+}
 
-  node.childList.querySelector(':scope > .tree-more')?.remove();
+function createChildren(state: TreeState, node: TreeNode, entries: readonly [Key, unknown][]): TreeNode[] {
+  return entries.map(([key, child]) => createNode(state, childPath(node.path, key), String(key), child));
+}
 
-  for (const [key, child] of entries.slice(node.shown, end)) {
-    const childNode = createNode(state, childPath(node.path, key), String(key), child);
+function createMoreItem(label: string, onClick: () => void): HTMLLIElement {
+  const item = createElement('li', 'tree-more');
 
-    node.children.push(childNode);
-    node.childList.append(childNode.li);
+  item.append(createButton('tree-more-button', label, onClick));
+
+  return item;
+}
+
+/** 描いた範囲の外に子が残っていれば、先頭に「前の」、末尾に「さらに」のボタンを置く */
+function placeMoreButtons(state: TreeState, node: TreeNode, childCount: number): void {
+  const rest = childCount - node.end;
+
+  for (const item of node.childList.querySelectorAll(':scope > .tree-more')) {
+    item.remove();
   }
 
-  node.shown = end;
-
-  const rest = entries.length - end;
+  if (node.begin > 0) {
+    node.childList.prepend(
+      createMoreItem(`前の ${Math.min(node.begin, CHILD_CHUNK)} 件（手前に ${node.begin} 件）`, () => {
+        showPrevious(state, node);
+      }),
+    );
+  }
 
   if (rest > 0) {
-    const item = createElement('li', 'tree-more');
-    const more = createButton('tree-more-button', `さらに ${Math.min(rest, CHILD_CHUNK)} 件（残り ${rest} 件）`);
-
-    more.addEventListener('click', () => {
-      showMore(state, node);
-    });
-    item.append(more);
-    node.childList.append(item);
+    node.childList.append(
+      createMoreItem(`さらに ${Math.min(rest, CHILD_CHUNK)} 件（残り ${rest} 件）`, () => {
+        showMore(state, node);
+      }),
+    );
   }
+}
+
+/** 子を次の CHILD_CHUNK 件だけ末尾に描く */
+function showMore(state: TreeState, node: TreeNode): void {
+  const entries = childEntries(node.value);
+  const end = Math.min(entries.length, node.end + CHILD_CHUNK);
+  const added = createChildren(state, node, entries.slice(node.end, end));
+
+  node.children.push(...added);
+  node.childList.append(...added.map((child) => child.li));
+  node.end = end;
+  placeMoreButtons(state, node, entries.length);
+}
+
+/** 子を前の CHILD_CHUNK 件だけ先頭に描く */
+function showPrevious(state: TreeState, node: TreeNode): void {
+  const entries = childEntries(node.value);
+  const begin = Math.max(0, node.begin - CHILD_CHUNK);
+  const added = createChildren(state, node, entries.slice(begin, node.begin));
+
+  node.children.unshift(...added);
+  node.childList.prepend(...added.map((child) => child.li));
+  node.begin = begin;
+  placeMoreButtons(state, node, entries.length);
+}
+
+/**
+ * 描いた子を捨て、index を含む束だけを描く。
+ * 手前の子を全部描くと件数に比例して遅くなる（7 万件の末尾への移動で約 7 秒）ため、間は描かない
+ */
+function showChunkOf(state: TreeState, node: TreeNode, index: number): void {
+  discardChildren(state, node);
+  // 空の範囲を束の先頭に置き、そこから 1 束描く
+  node.begin = index - (index % CHILD_CHUNK);
+  node.end = node.begin;
+  showMore(state, node);
+}
+
+/**
+ * index の子を描いた状態にする。描いた範囲の隣の束にあれば描き足し、離れていればその束だけを描く。
+ * 描き足しは MAX_REVEALED_CHILDREN 件まで。超えるときは隣の束でも描いた分を捨てる
+ */
+function showChild(state: TreeState, node: TreeNode, index: number): void {
+  if (index >= node.begin && index < node.end) {
+    return;
+  }
+
+  const isNextChunk = index >= node.end && index < node.end + CHILD_CHUNK;
+  const isPreviousChunk = index < node.begin && index >= node.begin - CHILD_CHUNK;
+  const canGrow = node.end - node.begin < MAX_REVEALED_CHILDREN;
+
+  if (isNextChunk && canGrow) {
+    showMore(state, node);
+  } else if (isPreviousChunk && canGrow) {
+    showPrevious(state, node);
+  } else {
+    showChunkOf(state, node, index);
+  }
+}
+
+function markExpanded(node: TreeNode): void {
+  if (node.toggle === null) {
+    return;
+  }
+
+  node.expanded = true;
+  node.childList.hidden = false;
+  node.toggle.textContent = '▼';
+  node.toggle.setAttribute('aria-expanded', 'true');
 }
 
 function expand(state: TreeState, node: TreeNode): void {
@@ -262,10 +345,7 @@ function expand(state: TreeState, node: TreeNode): void {
   }
 
   showMore(state, node);
-  node.expanded = true;
-  node.childList.hidden = false;
-  node.toggle.textContent = '▼';
-  node.toggle.setAttribute('aria-expanded', 'true');
+  markExpanded(node);
 }
 
 // 閉じたら子の描画を捨てる（描くノードの数を開いた階層だけに保つ）
@@ -274,8 +354,7 @@ function collapse(state: TreeState, node: TreeNode): void {
     return;
   }
 
-  forget(state, node);
-  node.childList.replaceChildren();
+  discardChildren(state, node);
   node.expanded = false;
   node.childList.hidden = true;
   node.toggle.textContent = '▶';
