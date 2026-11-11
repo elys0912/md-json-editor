@@ -320,6 +320,16 @@ input {
   font-family: Consolas, Menlo, 'Courier New', monospace;
 }
 
+/*
+ * 行番号の欄。CodeMirror の既定のテーマはライトの色（明るい灰色）で塗るので、ダークでも明るいまま残る。
+ * 画面の変数に合わせる。既定のテーマの指定（クラス 2 つ分）より強くするため、.cm-editor を挟む
+ */
+.body .cm-editor .cm-gutters {
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+}
+
 .body[data-view='split'] .preview {
   overflow: auto;
   border-left: 1px solid var(--border);
