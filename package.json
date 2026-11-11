@@ -14,7 +14,8 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:layout": "node scripts/check-layout.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

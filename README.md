@@ -60,6 +60,15 @@ npm run typecheck
 npm run build      # dist/ に出力
 ```
 
+画面の配置（「編集＋プレビュー」の 2 つの欄の幅と高さ、スクロールの連動、ダークのテーマの行番号の欄）は、テストでは確かめられません（jsdom は配置を計算しないため）。CSS や画面の組み立てを変えたときは、Chrome で測る確認を動かしてください。
+
+```sh
+npm run build && npm run preview   # このまま動かしておく
+npm run check:layout               # 別の端末で。Chrome をヘッドレスで起動して測る
+```
+
+Chrome が既定の場所に無いときは、環境変数 `CHROME_PATH` に実行ファイルを指定します。
+
 main への push で GitHub Pages に配置します（.github/workflows/deploy.yml）。
 
 ## ライセンス
