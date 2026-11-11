@@ -301,9 +301,14 @@ input {
   overflow: auto;
 }
 
+/*
+ * 列と行の下限を 0 にする。1fr だけだと下限が中身の大きさになり、長い行で編集側の列が広がってプレビューが画面の外へ出る。
+ * 行も中身の高さまで伸び、エディタとプレビューが自分ではスクロールしなくなる（はみ出した分は overflow: hidden で切れる）
+ */
 .body[data-view='split'] {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
 }
 
