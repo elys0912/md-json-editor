@@ -3,6 +3,7 @@
 
 import JSON5 from 'json5';
 
+import { splitExtension } from './files.ts';
 import { GEOJSON_TYPES } from './geojson.ts';
 import type { Kind } from './store.ts';
 
@@ -20,7 +21,7 @@ const KIND_BY_EXTENSION: ReadonlyMap<string, Kind> = new Map([
 const JSON5_NOTE = 'JSON5 として開きました。JSON のつもりなら種別を変更してください';
 
 // これを超える本文（文字数）は、JSON Lines と JSON5 の試行を先頭の行だけで判断する（全文の試行は重いため）
-const LARGE_TEXT_LENGTH = 5 * 1024 * 1024;
+const SAMPLING_TEXT_LENGTH = 5 * 1024 * 1024;
 const LARGE_TEXT_SAMPLE_LINES = 100;
 
 // JSON Lines と推定するのに要る、空でない行の数
@@ -47,13 +48,6 @@ function isGeoJson(value: unknown): boolean {
   return GEOJSON_TYPES.some((type) => type === value.type);
 }
 
-/** 拡張子（小文字）。`.gitignore` のような先頭のドットだけの名前は、拡張子なしとする（files.ts の replaceExtension と同じ） */
-function extensionOf(name: string | null): string | undefined {
-  const dot = name?.lastIndexOf('.') ?? -1;
-
-  return dot > 0 ? name?.slice(dot + 1).toLowerCase() : undefined;
-}
-
 function looksLikeJsonLines(text: string): boolean {
   const lines = text.split(/\r?\n/).filter((line) => line.trim() !== '');
 
@@ -68,7 +62,7 @@ function detectByContent(text: string): { kind: Kind; note?: string } {
     return { kind: isGeoJson(json) ? 'geojson' : 'json' };
   }
 
-  const sample = text.length > LARGE_TEXT_LENGTH ? text.split(/\r?\n/, LARGE_TEXT_SAMPLE_LINES).join('\n') : text;
+  const sample = text.length > SAMPLING_TEXT_LENGTH ? text.split(/\r?\n/, LARGE_TEXT_SAMPLE_LINES).join('\n') : text;
 
   if (looksLikeJsonLines(sample)) {
     return { kind: 'jsonl' };
@@ -83,7 +77,7 @@ function detectByContent(text: string): { kind: Kind; note?: string } {
 }
 
 export function detectKind(name: string | null, text: string): { kind: Kind; note?: string } {
-  const extension = extensionOf(name);
+  const extension = name === null ? undefined : splitExtension(name).extension?.toLowerCase();
 
   if (extension === 'json') {
     // 解釈に失敗したときは json のまま開き、誤りを示す

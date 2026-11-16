@@ -1,6 +1,6 @@
 // ファイルの読込（UTF-8 だけ、50 MB まで）とダウンロード、文書の名前の組み立て（基本 5「読込」、F1-1・F1-5・F1-7）
 
-import { getText } from './store.ts';
+import { byteLength, getText } from './store.ts';
 import type { Meta } from './store.ts';
 
 const BYTES_PER_MB = 1024 * 1024;
@@ -24,22 +24,29 @@ export interface ReadFailure {
   readonly reason: ReadFailureReason;
 }
 
-/** 拡張子を替えた名前。拡張子が無ければ足す。例：`a.json` と md → `a.md` */
-export function replaceExtension(name: string, extension: string): string {
+/**
+ * 名前を、最後のドットの前と後ろ（拡張子）に分ける。拡張子が無ければ extension は undefined。
+ * `.gitignore` のような先頭のドットだけの名前は、拡張子なしとする
+ */
+export function splitExtension(name: string): { base: string; extension: string | undefined } {
   const dot = name.lastIndexOf('.');
 
-  return `${dot > 0 ? name.slice(0, dot) : name}.${extension}`;
+  return dot > 0 ? { base: name.slice(0, dot), extension: name.slice(dot + 1) } : { base: name, extension: undefined };
+}
+
+/** 拡張子を替えた名前。拡張子が無ければ足す。例：`a.json` と md → `a.md` */
+export function replaceExtension(name: string, extension: string): string {
+  return `${splitExtension(name).base}.${extension}`;
 }
 
 /** 同名があれば「無題 2.md」のように番号を付ける */
 export function uniqueName(name: string, existingNames: ReadonlySet<string>): string {
-  const dot = name.lastIndexOf('.');
-  const base = dot > 0 ? name.slice(0, dot) : name;
-  const extension = dot > 0 ? name.slice(dot) : '';
+  const { base, extension } = splitExtension(name);
+  const suffix = extension === undefined ? '' : `.${extension}`;
   let candidate = name;
 
   for (let n = 2; existingNames.has(candidate); n += 1) {
-    candidate = `${base} ${n}${extension}`;
+    candidate = `${base} ${n}${suffix}`;
   }
 
   return candidate;
@@ -66,7 +73,7 @@ export async function readFile(file: File): Promise<{ ok: true; text: string } |
 
 /** 同じ名前で本文も同じ文書があれば、その meta を返す（F1-1）。名前と大きさで絞ってから本文を比べる */
 export async function findSameDoc(metas: readonly Meta[], name: string, text: string): Promise<Meta | undefined> {
-  const size = new TextEncoder().encode(text).length;
+  const size = byteLength(text);
 
   for (const meta of metas.filter((candidate) => candidate.name === name && candidate.size === size)) {
     if ((await getText(meta.id)) === text) {

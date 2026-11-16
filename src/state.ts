@@ -5,6 +5,7 @@ import type { EditorView } from '@codemirror/view';
 
 import type { Analysis } from './analysis.ts';
 import type { Action, Header, ViewName } from './header.ts';
+import { isSingleValueKind } from './json.ts';
 import type { Eol } from './json.ts';
 import type { StatusLine } from './status.ts';
 import type { Kind, Meta, Settings } from './store.ts';
@@ -151,7 +152,7 @@ export function enabledActions(doc: CurrentDoc | null): Set<Action> {
     enabled.add('export-html');
   }
 
-  if ((kind === 'json' || kind === 'json5' || kind === 'geojson') && isParsed) {
+  if (isSingleValueKind(kind) && isParsed) {
     REFORMAT_ACTIONS.forEach((action) => enabled.add(action));
   }
 
