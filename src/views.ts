@@ -3,7 +3,7 @@
 import type { EditorView } from '@codemirror/view';
 
 import { createButton, createElement } from './dom.ts';
-import { MAX_DRAWN_POSITIONS, renderGeoJson } from './geojson.ts';
+import { MAX_DRAWN_POSITIONS, renderGeoJson } from './geojson-view.ts';
 import type { RenderedMarkdown } from './markdown.ts';
 import { renderTree } from './tree.ts';
 import type { TreeHandle } from './tree.ts';

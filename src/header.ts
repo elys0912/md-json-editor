@@ -1,7 +1,8 @@
 // ヘッダ：サイドの開閉、文書名（クリックで名前の変更）、種別、表示の切替、操作のメニュー、テーマ（基本 2）
 // 文書名は利用者由来なので textContent と value でだけ出す（N2-4）
 
-import { createButton } from './dom.ts';
+import { createButton, createElement } from './dom.ts';
+import { KINDS } from './store.ts';
 import type { Kind, Meta, Settings } from './store.ts';
 
 export type Action =
@@ -50,7 +51,6 @@ export function actionLabel(action: Action): string {
   return ACTION_LABELS.find(([candidate]) => candidate === action)?.[1] ?? action;
 }
 
-const KINDS: readonly Kind[] = ['markdown', 'json', 'json5', 'jsonl', 'geojson'];
 const THEME_LABELS: readonly [Settings['theme'], string][] = [
   ['system', 'OS に合わせる'],
   ['light', 'ライト'],
@@ -79,9 +79,8 @@ export interface Header {
 }
 
 function createSelect<T extends string>(className: string, label: string, options: readonly (readonly [T, string])[], onChange: (value: T) => void): HTMLSelectElement {
-  const select = document.createElement('select');
+  const select = createElement('select', className);
 
-  select.className = className;
   select.setAttribute('aria-label', label);
 
   for (const [value, text] of options) {
@@ -101,7 +100,7 @@ function createSelect<T extends string>(className: string, label: string, option
 
 /** 文書名をその場の入力欄に替える。Enter と入力欄から離れたときに確定、Esc で取り消し */
 function startRename(nameButton: HTMLButtonElement, current: string, onRename: (name: string) => void): void {
-  const input = document.createElement('input');
+  const input = createElement('input', 'doc-name-input');
   let isDone = false;
 
   const finish = (shouldCommit: boolean): void => {
@@ -119,7 +118,6 @@ function startRename(nameButton: HTMLButtonElement, current: string, onRename: (
     }
   };
 
-  input.className = 'doc-name-input';
   input.value = current;
   input.setAttribute('aria-label', '文書名');
   input.addEventListener('keydown', (event) => {
@@ -139,16 +137,12 @@ function startRename(nameButton: HTMLButtonElement, current: string, onRename: (
 
 /** 操作のメニュー（details）。項目のボタンは種別ごとの有効・無効を切り替えるため Map で返す */
 function buildMenu(handlers: HeaderHandlers): { menu: HTMLDetailsElement; kindSelect: HTMLSelectElement; actionButtons: Map<Action, HTMLButtonElement> } {
-  const menu = document.createElement('details');
-  const summary = document.createElement('summary');
-  const menuItems = document.createElement('div');
-  const kindLabel = document.createElement('label');
+  const menu = createElement('details', 'menu');
+  const summary = createElement('summary', '', '操作');
+  const menuItems = createElement('div', 'menu-items');
+  const kindLabel = createElement('label', 'menu-kind');
   const kindSelect = createSelect('kind-select', '種別', KINDS.map((kind) => [kind, kind] as const), handlers.changeKind);
   const actionButtons = new Map<Action, HTMLButtonElement>();
-
-  menu.className = 'menu';
-  summary.textContent = '操作';
-  menuItems.className = 'menu-items';
 
   for (const [action, label] of ACTION_LABELS) {
     const button = createButton('menu-item', label, () => {
@@ -161,7 +155,6 @@ function buildMenu(handlers: HeaderHandlers): { menu: HTMLDetailsElement; kindSe
     menuItems.append(button);
   }
 
-  kindLabel.className = 'menu-kind';
   kindLabel.append('種別の変更 ', kindSelect);
   menuItems.append(kindLabel);
   menu.append(summary, menuItems);
@@ -172,8 +165,8 @@ function buildMenu(handlers: HeaderHandlers): { menu: HTMLDetailsElement; kindSe
 export function createHeader(container: HTMLElement, handlers: HeaderHandlers): Header {
   const sideToggle = createButton('side-toggle', '≡', handlers.toggleSide);
   const nameButton = createButton('doc-title', '');
-  const kindBadge = document.createElement('span');
-  const viewSelect = document.createElement('select');
+  const kindBadge = createElement('span', 'doc-kind-badge');
+  const viewSelect = createElement('select', 'view-select');
   const themeSelect = createSelect('theme-select', 'テーマ', THEME_LABELS, handlers.changeTheme);
   const { menu, kindSelect, actionButtons } = buildMenu(handlers);
   let currentName = '';
@@ -184,8 +177,6 @@ export function createHeader(container: HTMLElement, handlers: HeaderHandlers): 
   nameButton.addEventListener('click', () => {
     startRename(nameButton, currentName, handlers.rename);
   });
-  kindBadge.className = 'doc-kind-badge';
-  viewSelect.className = 'view-select';
   viewSelect.setAttribute('aria-label', '表示');
   viewSelect.addEventListener('change', () => {
     const chosen = currentViews.find((view) => view === viewSelect.value);

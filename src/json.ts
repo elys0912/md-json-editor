@@ -20,6 +20,10 @@ export type JsonlLine = { readonly lineNo: number; readonly value: unknown } | {
 /** 1 つの値を持つ種別（jsonl と markdown 以外） */
 export type SingleValueKind = Extract<Kind, 'json' | 'json5' | 'geojson'>;
 
+export function isSingleValueKind(kind: Kind): kind is SingleValueKind {
+  return kind === 'json' || kind === 'json5' || kind === 'geojson';
+}
+
 export type Indent = 2 | 4 | '\t';
 export type Eol = '\n' | '\r\n';
 

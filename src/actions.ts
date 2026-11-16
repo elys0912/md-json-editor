@@ -2,8 +2,8 @@
 
 import { openSearchPanel } from '@codemirror/search';
 
-import { changeView, cycleView, setSaveStatus, updateHeader } from './body.ts';
-import { confirmLeave, createDoc, NEW_DOC_BASE_NAME, pasteFromClipboard, settlePendingEdit, showDoc, startSave } from './documents.ts';
+import { changeView, cycleView, updateHeader } from './body.ts';
+import { confirmLeave, createDoc, NEW_DOC_BASE_NAME, pasteFromClipboard, saveAndShow, settlePendingEdit, startSave } from './documents.ts';
 import { download, replaceExtension } from './files.ts';
 import type { Action } from './header.ts';
 import { arrayToLines, format, linesToArray, minify } from './json.ts';
@@ -11,7 +11,6 @@ import type { Indent } from './json.ts';
 import { exportHtml } from './markdown.ts';
 import { app, EXTENSION_BY_KIND, MESSAGES } from './state.ts';
 import type { CurrentDoc } from './state.ts';
-import { saveDoc } from './store.ts';
 import type { Kind } from './store.ts';
 
 const INDENT_BY_ACTION: Partial<Record<Action, Indent>> = { 'format-2': 2, 'format-4': 4, 'format-tab': '\t' };
@@ -156,11 +155,7 @@ export async function changeKind(kind: Kind): Promise<void> {
     return;
   }
 
-  const meta = await saveDoc({ ...doc.meta, kind }, doc.text).catch(() => null);
-
-  showDoc(meta ?? { ...doc.meta, kind }, doc.text);
-  app.hasSaveFailed = meta === null;
-  setSaveStatus();
+  await saveAndShow({ ...doc.meta, kind }, doc.text);
 }
 
 /** Ctrl+F の宛先（基本 2）。プレビュー・図形はブラウザの検索に任せる */
@@ -197,7 +192,7 @@ export function handleShortcut(event: KeyboardEvent): void {
       break;
     case 'o':
       event.preventDefault();
-      app.dom.fileInput.click();
+      void runAction('open-file');
       break;
     case 'e':
       event.preventDefault();

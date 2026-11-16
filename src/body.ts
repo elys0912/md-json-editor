@@ -5,6 +5,7 @@ import { analyze } from './analysis.ts';
 import type { Issue } from './analysis.ts';
 import { createButton, createElement } from './dom.ts';
 import { goTo } from './editor.ts';
+import { isSingleValueKind } from './json.ts';
 import { actionLabel } from './header.ts';
 import type { ViewName } from './header.ts';
 import { renderMarkdown } from './markdown.ts';
@@ -13,7 +14,7 @@ import { renderDocList, renderToc } from './side.ts';
 import { app, enabledActions, MESSAGES, viewsOf } from './state.ts';
 import type { CurrentDoc } from './state.ts';
 import { listMeta } from './store.ts';
-import { renderRows } from './tree.ts';
+import { renderRows } from './rows.ts';
 import { attachScrollSync, createPreview, renderShapeView, renderTreeView, showProperties } from './views.ts';
 import type { PreviewHandle } from './views.ts';
 
@@ -26,7 +27,7 @@ export function runAnalysis(doc: CurrentDoc): void {
 
   doc.analysis = analysis;
 
-  if (analysis.isParsed && doc.meta.kind !== 'markdown' && doc.meta.kind !== 'jsonl') {
+  if (analysis.isParsed && isSingleValueKind(doc.meta.kind)) {
     doc.lastGood = { value };
   }
 }

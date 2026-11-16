@@ -1,10 +1,9 @@
-// 値をツリーとして描く（開いた階層だけ描く）、検索、パスの写し、JSON Lines の行一覧（詳細設計 3.5、F3-2・F3-5・F5-3）
-// キーと値は利用者由来なので textContent でだけ出す（N2-4）
-// パスの例：`$.items[2].name`、識別子にならないキーは `$["a b"]`
+// 値をツリーとして描く（開いた階層だけ描く）、検索、パスの写し（詳細設計 3.5、F3-2・F3-5）
+// キーと値は利用者由来なので textContent でだけ出す（N2-4）。パスの書き方は path.ts
 
 import { createButton, createElement } from './dom.ts';
-import { describeLineError } from './json.ts';
-import type { JsonlLine } from './json.ts';
+import { childPath, ROOT_PATH } from './path.ts';
+import type { PathKey } from './path.ts';
 
 export interface TreeHandle {
   // 開き切れたら true。描くノードが上限を超えたら途中で止めて false
@@ -30,18 +29,12 @@ const MAX_SUMMARY_LENGTH = 200;
 const HIGH_SURROGATE_FIRST = 0xd800;
 const HIGH_SURROGATE_LAST = 0xdbff;
 const MAX_SEARCH_MATCHES = 1_000;
-// JSON Lines の行一覧をこの数ずつ描く（N3-2）
-const ROW_CHUNK = 1_000;
 
-const ROOT_PATH = '$';
 // 検索の直後など、どの一致も指していない状態
 const NO_CURRENT = -1;
 
-const IDENTIFIER_PATTERN = /^[A-Za-z_$][\w$]*$/;
 // パスの 1 区切り：`.key`、`[0]`、`["key"]`
 const PATH_SEGMENT_PATTERN = /\.([A-Za-z_$][\w$]*)|\[(\d+)\]|\[("(?:[^"\\]|\\.)*")\]/g;
-
-type Key = string | number;
 
 interface TreeNode {
   readonly path: string;
@@ -59,7 +52,7 @@ interface TreeNode {
 
 interface SearchItem {
   readonly path: string;
-  readonly key: Key | null;
+  readonly key: PathKey | null;
   readonly value: unknown;
 }
 
@@ -67,7 +60,7 @@ function isContainer(value: unknown): value is Record<string, unknown> | unknown
   return typeof value === 'object' && value !== null;
 }
 
-function childEntries(value: unknown): [Key, unknown][] {
+function childEntries(value: unknown): [PathKey, unknown][] {
   if (Array.isArray(value)) {
     return value.map((child, index) => [index, child]);
   }
@@ -75,16 +68,8 @@ function childEntries(value: unknown): [Key, unknown][] {
   return isContainer(value) ? Object.entries(value) : [];
 }
 
-function childPath(parent: string, key: Key): string {
-  if (typeof key === 'number') {
-    return `${parent}[${key}]`;
-  }
-
-  return IDENTIFIER_PATTERN.test(key) ? `${parent}.${key}` : `${parent}[${JSON.stringify(key)}]`;
-}
-
 /** パスを区切りの列に直す。`$` だけなら空の列 */
-function parsePath(path: string): Key[] {
+function parsePath(path: string): PathKey[] {
   return [...path.matchAll(PATH_SEGMENT_PATTERN)].map(([, name, index, quoted]) => {
     if (index !== undefined) {
       return Number(index);
@@ -107,7 +92,7 @@ function truncate(text: string): string {
 }
 
 /** 値の要約。オブジェクトは `{n}`、配列は `[n]`、文字列は引用符つきで MAX_SUMMARY_LENGTH 文字で切る */
-function summarize(value: unknown): string {
+export function summarize(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.length}]`;
   }
@@ -233,7 +218,7 @@ function discardChildren(state: TreeState, node: TreeNode): void {
   node.childList.replaceChildren();
 }
 
-function createChildren(state: TreeState, node: TreeNode, entries: readonly [Key, unknown][]): TreeNode[] {
+function createChildren(state: TreeState, node: TreeNode, entries: readonly [PathKey, unknown][]): TreeNode[] {
   return entries.map(([key, child]) => createNode(state, childPath(node.path, key), String(key), child));
 }
 
@@ -362,7 +347,7 @@ function collapse(state: TreeState, node: TreeNode): void {
 }
 
 /** キーか値（文字列・数値・真偽値）に needle（小文字）を含むか */
-function matchesNeedle(key: Key | null, value: unknown, needle: string): boolean {
+function matchesNeedle(key: PathKey | null, value: unknown, needle: string): boolean {
   const contains = (text: string): boolean => text.toLowerCase().includes(needle);
   const isPrimitive = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
 
@@ -466,54 +451,4 @@ export function renderTree(container: HTMLElement, value: unknown): TreeHandle {
     },
     ...createFinder(value, (path) => findRow(state, root, path)),
   };
-}
-
-/** JSON Lines の行一覧。1 行 ＝ 行番号 ＋ 値の要約。クリックでその行の値をツリーで開く。誤りの行は内容を出す */
-export function renderRows(container: HTMLElement, lines: readonly JsonlLine[]): void {
-  const list = createElement('ol', 'rows');
-  let shown = 0;
-
-  const showMore = (): void => {
-    const end = Math.min(lines.length, shown + ROW_CHUNK);
-
-    list.querySelector(':scope > .rows-more')?.remove();
-
-    for (const line of lines.slice(shown, end)) {
-      const li = createElement('li', 'rows-item');
-      const number = createElement('span', 'rows-line-no', String(line.lineNo));
-
-      if ('error' in line) {
-        li.classList.add('is-error');
-        li.append(number, createElement('span', 'rows-error', describeLineError(line.lineNo, line.error)));
-        list.append(li);
-        continue;
-      }
-
-      const button = createButton('rows-summary', summarize(line.value));
-      const detail = createElement('div', 'rows-detail');
-      detail.hidden = true;
-      button.addEventListener('click', () => {
-        detail.hidden = !detail.hidden;
-
-        if (!detail.hidden && detail.childElementCount === 0) {
-          renderTree(detail, line.value);
-        }
-      });
-      li.append(number, button, detail);
-      list.append(li);
-    }
-
-    shown = end;
-
-    if (shown < lines.length) {
-      const item = createElement('li', 'rows-more');
-      const more = createButton('rows-more-button', `さらに ${Math.min(lines.length - shown, ROW_CHUNK)} 行`);
-      more.addEventListener('click', showMore);
-      item.append(more);
-      list.append(item);
-    }
-  };
-
-  showMore();
-  container.replaceChildren(list);
 }

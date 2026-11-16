@@ -31,12 +31,10 @@ export function renderDocList(
   currentId: string | null,
   options: { persistent: boolean; handlers: DocListHandlers },
 ): void {
-  const list = document.createElement('ul');
-
-  list.className = 'doc-list';
+  const list = createElement('ul', 'doc-list');
 
   for (const meta of metas) {
-    const item = document.createElement('li');
+    const item = createElement('li', 'doc-item');
     const open = createButton('doc-open', '', () => {
       options.handlers.open(meta.id);
     });
@@ -44,7 +42,6 @@ export function renderDocList(
       options.handlers.remove(meta);
     });
 
-    item.className = 'doc-item';
     item.dataset.id = meta.id;
     item.classList.toggle('is-current', meta.id === currentId);
     open.append(
@@ -60,9 +57,8 @@ export function renderDocList(
   }
 
   const total = metas.reduce((sum, meta) => sum + meta.size, 0);
-  const footer = document.createElement('div');
+  const footer = createElement('div', 'doc-footer');
 
-  footer.className = 'doc-footer';
   footer.append(createElement('span', 'doc-total', `${metas.length} 件・合計 ${formatSize(total)}`));
 
   if (metas.length > 0) {
@@ -84,14 +80,11 @@ export function renderToc(container: HTMLElement, toc: readonly TocEntry[] | nul
     return;
   }
 
-  const list = document.createElement('ul');
-
-  list.className = 'toc-list';
+  const list = createElement('ul', 'toc-list');
 
   for (const entry of toc) {
-    const item = document.createElement('li');
+    const item = createElement('li', `toc-item toc-level-${entry.level}`);
 
-    item.className = `toc-item toc-level-${entry.level}`;
     item.append(
       createButton('toc-link', entry.text, () => {
         onSelect(entry);

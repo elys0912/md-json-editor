@@ -11,13 +11,13 @@ import type { ViewName } from './header.ts';
 import type { Eol } from './json.ts';
 import { app, EXTENSION_BY_KIND, MESSAGES, VIEWS_BY_KIND } from './state.ts';
 import type { CurrentDoc } from './state.ts';
-import { deleteAll, deleteDoc, getText, listMeta, saveDoc, saveSettings } from './store.ts';
-import type { Kind, Meta } from './store.ts';
+import { buildMeta, deleteAll, deleteDoc, getText, listMeta, saveDoc, saveSettings } from './store.ts';
+import type { DocHeader, Kind, Meta } from './store.ts';
 
 // 入力が止まってから解析と自動保存をするまで（N3-3）。1 MB を超える本文では長くする
 const DEBOUNCE_MS = 300;
-const LARGE_TEXT_DEBOUNCE_MS = 1_000;
-const LARGE_TEXT_LENGTH = 1_000_000;
+const LONG_DEBOUNCE_MS = 1_000;
+const LONG_DEBOUNCE_TEXT_LENGTH = 1_000_000;
 
 export const NEW_DOC_BASE_NAME = '無題';
 
@@ -92,7 +92,7 @@ export function onEditorChange(text: string): void {
 
   app.current.text = text;
   clearPendingTimer();
-  app.timer = setTimeout(() => void commitEdit(), text.length > LARGE_TEXT_LENGTH ? LARGE_TEXT_DEBOUNCE_MS : DEBOUNCE_MS);
+  app.timer = setTimeout(() => void commitEdit(), text.length > LONG_DEBOUNCE_TEXT_LENGTH ? LONG_DEBOUNCE_MS : DEBOUNCE_MS);
 }
 
 export function settlePendingEdit(): void {
@@ -186,14 +186,20 @@ export async function openById(id: string): Promise<void> {
   showDoc(meta, text);
 }
 
-/** 新しい文書を保存して開く。保存に失敗しても開いて編集を続けられるようにする（N4-2） */
-export async function createDoc(name: string, text: string, kind: Kind, view?: ViewName): Promise<void> {
-  const docHeader = { id: crypto.randomUUID(), name: uniqueName(name, new Set(app.metas.map((meta) => meta.name))), kind };
-  const saved = await saveDoc(docHeader, text).catch(() => null);
+/** 保存して開く。保存に失敗しても開いて編集を続けられるようにする（N4-2）。種別の変更でも使う */
+export async function saveAndShow(header: DocHeader, text: string, view?: ViewName): Promise<void> {
+  const saved = await saveDoc(header, text).catch(() => null);
 
-  showDoc(saved ?? { ...docHeader, size: new TextEncoder().encode(text).length, updatedAt: Date.now() }, text, view);
+  showDoc(saved ?? buildMeta(header, text), text, view);
   app.hasSaveFailed = saved === null;
   setSaveStatus();
+}
+
+/** 新しい文書を保存して開く */
+export async function createDoc(name: string, text: string, kind: Kind, view?: ViewName): Promise<void> {
+  const docHeader = { id: crypto.randomUUID(), name: uniqueName(name, new Set(app.metas.map((meta) => meta.name))), kind };
+
+  await saveAndShow(docHeader, text, view);
 }
 
 export async function openText(text: string): Promise<void> {
@@ -262,12 +268,13 @@ export async function pasteFromClipboard(): Promise<void> {
 
 // ---- 削除・読み直し ----
 
-async function openFirstOrEmpty(): Promise<void> {
+/** preferredId の文書（なければ一覧の先頭）を開く。0 件なら案内を出す。起動のときと、開いていた文書を削除したときに使う */
+export async function openFirstOrEmpty(preferredId: string | null = null): Promise<void> {
   clearPendingTimer();
   app.current = null;
   app.metas = await listMeta();
 
-  const first = app.metas[0];
+  const first = app.metas.find((meta) => meta.id === preferredId) ?? app.metas[0];
   const text = first === undefined ? undefined : await getText(first.id);
 
   if (first !== undefined && text !== undefined) {

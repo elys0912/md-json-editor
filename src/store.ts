@@ -1,7 +1,9 @@
 // 文書の保存（IndexedDB。使えないときはメモリ）、永続化の要求、別タブとの通知、設定（localStorage）
 // 詳細設計 3.1、基本 4。IndexedDB を直接扱うのはこのファイルだけ（N5-1）
 
-export type Kind = 'markdown' | 'json' | 'json5' | 'jsonl' | 'geojson';
+export const KINDS = ['markdown', 'json', 'json5', 'jsonl', 'geojson'] as const;
+
+export type Kind = (typeof KINDS)[number];
 
 export interface Meta {
   readonly id: string;
@@ -202,6 +204,16 @@ function byUpdatedAtDesc(a: Meta, b: Meta): number {
   return b.updatedAt - a.updatedAt;
 }
 
+/** 本文の UTF-8 のバイト数 */
+export function byteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/** いまの時刻と本文の大きさで meta を作る */
+export function buildMeta(header: DocHeader, text: string): Meta {
+  return { ...header, size: byteLength(text), updatedAt: Date.now() };
+}
+
 /** updatedAt の降順。本文は読まない */
 export async function listMeta(): Promise<Meta[]> {
   if (db === null) {
@@ -225,7 +237,7 @@ export async function getText(id: string): Promise<string | undefined> {
 
 /** meta と本文を 1 つのトランザクションで保存し、保存した meta を返す。失敗は例外のまま投げる */
 export async function saveDoc(header: DocHeader, text: string): Promise<Meta> {
-  const meta: Meta = { ...header, size: new TextEncoder().encode(text).length, updatedAt: Date.now() };
+  const meta = buildMeta(header, text);
 
   if (db === null) {
     memory.set(meta.id, { meta, text });

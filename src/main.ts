@@ -6,7 +6,7 @@ import './style.css';
 import './export.css';
 
 import { changeKind, handleShortcut, rename, runAction } from './actions.ts';
-import { changeView, refreshList, renderBody, setSaveStatus, updateHeader } from './body.ts';
+import { changeView, refreshList, setSaveStatus, updateHeader } from './body.ts';
 import { createElement } from './dom.ts';
 import {
   confirmLeave,
@@ -15,12 +15,12 @@ import {
   onEditorChange,
   openById,
   openFiles,
+  openFirstOrEmpty,
   openText,
   reloadCurrent,
   removeAll,
   removeDoc,
   settlePendingEdit,
-  showDoc,
 } from './documents.ts';
 import { createEditor } from './editor.ts';
 import { createHeader } from './header.ts';
@@ -28,7 +28,7 @@ import type { Header } from './header.ts';
 import { app, MESSAGES, NARROW_SCREEN_QUERY, setApp } from './state.ts';
 import type { AppState, Dom } from './state.ts';
 import { createStatusLine } from './status.ts';
-import { getText, listMeta, loadSettings, openStore, saveSettings } from './store.ts';
+import { loadSettings, openStore, saveSettings } from './store.ts';
 import type { Settings, StoredDoc, StoreEvents } from './store.ts';
 
 // 起動し直したときに前の起動のイベントとエディタを片付けるため
@@ -220,24 +220,6 @@ function attachWindowEvents(signal: AbortSignal): void {
   );
 }
 
-/** 最後に開いていた文書（なければ一覧の先頭）を開く。0 件なら案内を出す */
-async function openInitialDoc(): Promise<void> {
-  app.metas = await listMeta();
-
-  const first = app.metas.find((meta) => meta.id === app.settings.lastDocId) ?? app.metas[0];
-  const text = first === undefined ? undefined : await getText(first.id);
-
-  if (first !== undefined && text !== undefined) {
-    showDoc(first, text);
-
-    return;
-  }
-
-  renderBody();
-  setSaveStatus();
-  await refreshList();
-}
-
 /** 画面を組み立てて起動する。起動し直すときも呼ぶ（前の起動のイベントとエディタは片付ける） */
 export async function startApp(root: HTMLElement): Promise<{ offerUpdate: typeof offerUpdate }> {
   running?.events.abort();
@@ -263,7 +245,8 @@ export async function startApp(root: HTMLElement): Promise<{ offerUpdate: typeof
   });
   // ドロップや貼り付けを受けるのは、保存先が決まってから（それより前に作った文書は openStore で消えるため）
   attachWindowEvents(events.signal);
-  await openInitialDoc();
+  // 最後に開いていた文書（なければ一覧の先頭）を開く
+  await openFirstOrEmpty(app.settings.lastDocId);
 
   return { offerUpdate };
 }
