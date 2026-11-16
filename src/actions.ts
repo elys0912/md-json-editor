@@ -45,12 +45,13 @@ function reformat(doc: CurrentDoc, action: Action): void {
     return;
   }
 
-  // 取り消しで戻せるよう、テキスト表示に切り替えてから行う
-  changeView('text');
-
+  // 断ったときは表示も変えない
   if (kind === 'json5' && !window.confirm(MESSAGES.json5Confirm)) {
     return;
   }
+
+  // 取り消しで戻せるよう、テキスト表示に切り替えてから行う
+  changeView('text');
 
   const indent = INDENT_BY_ACTION[action];
 

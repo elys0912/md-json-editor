@@ -12,6 +12,7 @@ import {
   insertAtEnd,
   pressKey,
   query,
+  selectOption,
   replaceText,
   runAction,
   start,
@@ -247,6 +248,8 @@ describe('UC7 JSON5 の設定ファイルを読み、整形の確認でコメン
     confirm.mockReturnValueOnce(false);
     runAction(root, 'format-2');
     expect(confirm).toHaveBeenCalledWith('JSON5 の整形・圧縮ではコメントと数値の書き方が失われます。続けますか');
+    expect(query(root, '.body').dataset.view).toBe('tree');
+    selectOption(root, '.view-select', 'text');
     expect(editorOf(root).state.sliceDoc(0)).toBe(original);
 
     confirm.mockReturnValueOnce(true);
