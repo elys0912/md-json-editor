@@ -219,7 +219,8 @@ export async function openFiles(files: readonly File[]): Promise<void> {
   }
 
   const failures: ReadFailure[] = [];
-  let note: string | undefined;
+  // 案内の文 → その案内が付いたファイルの名前
+  const namesByNote = new Map<string, string[]>();
 
   for (const file of files) {
     const readResult = await readFile(file);
@@ -238,16 +239,27 @@ export async function openFiles(files: readonly File[]): Promise<void> {
 
     const detected = detectKind(file.name, readResult.text);
 
-    note = detected.note;
+    if (detected.note !== undefined) {
+      namesByNote.set(detected.note, [...(namesByNote.get(detected.note) ?? []), file.name]);
+    }
     await createDoc(file.name, readResult.text, detected.kind);
     app.metas = await listMeta();
   }
 
   if (failures.length > 0) {
     app.status.notify(describeFailures(failures, files.length === 1));
-  } else if (note !== undefined) {
-    app.status.notify(note);
+  } else if (namesByNote.size > 0) {
+    app.status.notify(describeNotes(namesByNote, files.length === 1));
   }
+}
+
+/** 開いたときの案内。1 件だけ選んだときは案内だけ、複数のときはファイル名を付けて 1 つにまとめる */
+function describeNotes(namesByNote: ReadonlyMap<string, readonly string[]>, isSingleFile: boolean): string {
+  if (isSingleFile) {
+    return [...namesByNote.keys()].join(' ');
+  }
+
+  return [...namesByNote].map(([note, names]) => `${names.join('・')}：${note}`).join(' ／ ');
 }
 
 export async function pasteFromClipboard(): Promise<void> {

@@ -51,6 +51,13 @@ describe('UC10 貼り付けた内容を新しい文書として開く。BOM 付�
     await chooseFiles(root, [bomJson()]);
     expect(docNames(root)).toHaveLength(4);
   });
+
+  it('複数のファイルを JSON5 と推定したときは、案内にファイル名をまとめて出す', async () => {
+    const root = await start();
+
+    await chooseFiles(root, [new File(['{a: 1}'], 'a'), new File(['{b: 2}'], 'b')], 'b');
+    await statusShows(root, 'a・b：JSON5 として開きました。JSON のつもりなら種別を変更してください');
+  });
 });
 
 describe('UC11 新規作成し、一覧で切り替え、名前・種別を変え、削除する。テーマを変え、起動し直しても保たれる', () => {
