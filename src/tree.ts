@@ -241,7 +241,16 @@ function placeMoreButtons(state: TreeState, node: TreeNode, childCount: number):
   if (node.begin > 0) {
     node.childList.prepend(
       createMoreItem(`前の ${Math.min(node.begin, CHILD_CHUNK)} 件（手前に ${node.begin} 件）`, () => {
+        // Firefox は scrollTop が 0 のとき scroll anchoring で位置を保たない。手前に足した分だけ下がった子の並びの下端を、元の高さへ手で戻す。
+        // ブラウザが先に保ったときは、ずれが 0 になり二重には動かない
+        const bottomBefore = node.childList.getBoundingClientRect().bottom;
+
         showPrevious(state, node);
+
+        const scroller = node.childList.closest('.body');
+        if (scroller) {
+          scroller.scrollTop += node.childList.getBoundingClientRect().bottom - bottomBefore;
+        }
       }),
     );
   }
