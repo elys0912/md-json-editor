@@ -1,0 +1,3 @@
+# テストの入力ファイルは改行もテストの対象のため、checkout で変換しない。
+# core.autocrlf=true の Windows では LF が CRLF になり、整形の結果を比べるテストが落ちた
+test/fixtures/** -text

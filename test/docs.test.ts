@@ -38,7 +38,10 @@ describe('UC10 貼り付けた内容を新しい文書として開く。BOM 付�
     paste('# 見出し');
     await titleBecomes(root, '無題.md');
 
-    expect(texts(root, '.doc-item .doc-kind')).toEqual(['markdown', 'json', 'jsonl']);
+    // 一覧は開いた後に非同期で描き直すため、タイトルとは別に待つ
+    await vi.waitFor(() => {
+      expect(texts(root, '.doc-item .doc-kind')).toEqual(['markdown', 'json', 'jsonl']);
+    });
 
     const bomJson = (): File => new File([BOM, '{"a": 1}'], 'bom.json');
 
